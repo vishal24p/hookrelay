@@ -285,6 +285,19 @@ export default function App() {
     return () => window.removeEventListener('storage', handleStorageChange)
   }, [])
 
+  // ── Bug 4 Fix: Sync session from browser back/forward navigation ───────────
+  useEffect(() => {
+    function onHashChange() {
+      const id = window.location.hash.replace('#', '')
+      if (id && id !== sessionId) {
+        setSessionId(id)
+        setEvents([])
+      }
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [sessionId])
+
   // ── Layout State ──────────────────────────────────────────────────────────
   const [feedLayout, setFeedLayout] = useState(() => localStorage.getItem('hookrelay_feed_layout') || 'list')
   function toggleLayout(type) {
@@ -378,6 +391,11 @@ export default function App() {
           border-color: rgba(255,255,255,0.12) !important;
           transform: translateY(-1px);
           box-shadow: 0 8px 16px -4px rgba(0,0,0,0.4);
+        }
+
+        /* Bug 3 fix: focus-within on the FWD input row */
+        .fwd-row:focus-within {
+          border-color: #2F2FE4 !important;
         }
 
         .overlay-card:hover {
@@ -482,7 +500,7 @@ export default function App() {
                 </div>
               )}
 
-              <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', focusWithin: 'border-color: #2F2FE4' }}>
+              <div className="fwd-row" style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', transition: 'border-color 0.2s ease' }}>
                 <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>FWD</span>
                 <input 
                   type="text" value={forwardUrl} onChange={e => { setForwardUrl(e.target.value); setForwardSaved(false) }} onKeyDown={handleForwardKeyDown}

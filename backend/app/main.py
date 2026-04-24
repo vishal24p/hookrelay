@@ -343,7 +343,7 @@ def get_session_config(session_id: str, db: Session = Depends(get_db)):
 @app.get("/tunnel-url")
 def get_tunnel_url():
     try:
-        with open("/shared/tunnel-url.txt", "r") as f:
+        with open("/shared/tunnel_url.txt", "r") as f:
             url = f.read().strip()
         return {"url": url or None}
     except FileNotFoundError:
