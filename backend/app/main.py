@@ -148,6 +148,18 @@ def clear_webhooks(session_id: str, db: Session = Depends(get_db)):
     return {"status": "cleared", "deleted_count": deleted}
 
 
+# ─── DELETE /sessions/{session_id} ────────────────────────────────────────────
+
+@app.delete("/sessions/{session_id}", status_code=200)
+def delete_session(session_id: str, db: Session = Depends(get_db)):
+    # Delete all events
+    db.query(models.WebhookEvent).filter(models.WebhookEvent.session_id == session_id).delete()
+    # Delete config
+    db.query(models.SessionConfig).filter(models.SessionConfig.session_id == session_id).delete()
+    db.commit()
+    return {"status": "deleted"}
+
+
 # ─── POST /hooks/{session_id}/{event_id}/replay ──────────────────────────────
 # Re-forwards a stored event to the session's configured forwarding URL.
 # Creates a new event record so it shows up in the dashboard timeline.
@@ -261,17 +273,32 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 # ─── GET /sessions ──────────────────────────────────────────────────────────
 # Returns all distinct session IDs ordered by most recent activity.
-# Frontend polls this every 5 s to populate the sessions sidebar.
+# Fetches from both WebhookEvents and SessionConfigs to ensure empty sessions with saved configs are not lost.
 
 @app.get("/sessions")
 def get_sessions(db: Session = Depends(get_db)):
-    results = (
-        db.query(models.WebhookEvent.session_id)
+    events = (
+        db.query(models.WebhookEvent.session_id, func.max(models.WebhookEvent.received_at).label("last_active"))
         .group_by(models.WebhookEvent.session_id)
-        .order_by(func.max(models.WebhookEvent.received_at).desc())
         .all()
     )
-    return [r.session_id for r in results]
+    
+    configs = (
+        db.query(models.SessionConfig.session_id, models.SessionConfig.updated_at.label("last_active"))
+        .all()
+    )
+    
+    session_dict = {}
+    for r in events:
+        session_dict[r.session_id] = r.last_active
+        
+    for r in configs:
+        t = r.last_active or datetime.min
+        if r.session_id not in session_dict or (session_dict[r.session_id] is None) or t > session_dict[r.session_id]:
+            session_dict[r.session_id] = t
+            
+    sorted_sessions = sorted(session_dict.keys(), key=lambda k: session_dict[k] or datetime.min, reverse=True)
+    return sorted_sessions
 
 
 # ─── PUT /sessions/{session_id}/config ────────────────────────────────────────
