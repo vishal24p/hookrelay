@@ -1,0 +1,330 @@
+import asyncio
+import json
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+import httpx
+import redis.asyncio as aioredis
+from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+from typing import List
+
+from . import models
+from .database import engine, get_db, Base
+from .schemas import WebhookEventOut, SessionConfigIn, SessionConfigOut
+
+Base.metadata.create_all(bind=engine)
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
+
+
+# ─── App Lifespan ─────────────────────────────────────────────────────────────
+# Creates the Redis client once when the container starts.
+# Closes it cleanly when the container stops.
+# app.state.redis is then available anywhere in the app.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+    yield
+    await app.state.redis.aclose()
+
+
+app = FastAPI(title="HookRelay", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ─── Helper: Forward webhook to developer's app ──────────────────────────────
+
+async def forward_webhook(
+    forward_url: str,
+    body: bytes | None,
+    content_type: str,
+) -> tuple[int | None, str | None, str | None]:
+    """
+    POST the raw webhook body to the developer's real endpoint.
+    Returns (status_code, response_body, error_message).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                forward_url,
+                content=body or b"",
+                headers={"Content-Type": content_type},
+            )
+        return resp.status_code, resp.text[:2000], None
+    except Exception as e:
+        return None, None, str(e)[:500]
+
+
+# ─── POST /hooks/{session_id} ─────────────────────────────────────────────────
+# Receives a webhook, saves to PostgreSQL, publishes to Redis,
+# and optionally forwards to the developer's real endpoint.
+
+@app.post("/hooks/{session_id}", status_code=200)
+async def receive_webhook(
+    session_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    raw_body = await request.body()
+    body_text = raw_body.decode("utf-8") if raw_body else None
+
+    event = models.WebhookEvent(
+        session_id=session_id,
+        method=request.method,
+        headers=dict(request.headers),
+        body=body_text,
+        query_params=dict(request.query_params),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+
+    # Publish the saved event to Redis channel "webhook:<session_id>"
+    event_data = jsonable_encoder(WebhookEventOut.model_validate(event))
+    await request.app.state.redis.publish(
+        f"webhook:{session_id}",
+        json.dumps(event_data),
+    )
+
+    # Check if this session has a forwarding URL configured
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    if config and config.forward_url:
+        content_type = request.headers.get("content-type", "application/json")
+        status, response, error = await forward_webhook(
+            config.forward_url, raw_body, content_type
+        )
+        event.forward_status = status
+        event.forward_response = response
+        event.forward_error = error
+        event.forwarded_at = datetime.utcnow()
+        db.commit()
+        db.refresh(event)
+
+        # Re-publish with forwarding data so the dashboard updates
+        event_data = jsonable_encoder(WebhookEventOut.model_validate(event))
+        await request.app.state.redis.publish(
+            f"webhook:{session_id}",
+            json.dumps(event_data),
+        )
+
+    return {"status": "received", "id": event.id}
+
+
+# ─── GET /hooks/{session_id} ──────────────────────────────────────────────────
+# Returns full history from PostgreSQL — used when the dashboard first loads.
+
+@app.get("/hooks/{session_id}", response_model=List[WebhookEventOut])
+def get_webhooks(session_id: str, db: Session = Depends(get_db)):
+    return (
+        db.query(models.WebhookEvent)
+        .filter(models.WebhookEvent.session_id == session_id)
+        .order_by(models.WebhookEvent.received_at.desc())
+        .all()
+    )
+
+
+# ─── DELETE /hooks/{session_id} ───────────────────────────────────────────────
+
+@app.delete("/hooks/{session_id}", status_code=200)
+def clear_webhooks(session_id: str, db: Session = Depends(get_db)):
+    deleted = (
+        db.query(models.WebhookEvent)
+        .filter(models.WebhookEvent.session_id == session_id)
+        .delete()
+    )
+    db.commit()
+    return {"status": "cleared", "deleted_count": deleted}
+
+
+# ─── POST /hooks/{session_id}/{event_id}/replay ──────────────────────────────
+# Re-forwards a stored event to the session's configured forwarding URL.
+# Creates a new event record so it shows up in the dashboard timeline.
+
+@app.post("/hooks/{session_id}/{event_id}/replay", status_code=200)
+async def replay_event(
+    session_id: str,
+    event_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    # Load the original event
+    original = (
+        db.query(models.WebhookEvent)
+        .filter_by(id=event_id, session_id=session_id)
+        .first()
+    )
+    if not original:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Load session config for forward URL
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    if not config or not config.forward_url:
+        raise HTTPException(status_code=400, detail="No forwarding URL configured for this session")
+
+    # Forward the original payload
+    raw_body = original.body.encode("utf-8") if original.body else b""
+    content_type = "application/json"
+    if original.headers and isinstance(original.headers, dict):
+        content_type = original.headers.get("content-type", "application/json")
+
+    status, response, error = await forward_webhook(
+        config.forward_url, raw_body, content_type
+    )
+
+    # Create a new event record for the replay
+    replay_event = models.WebhookEvent(
+        session_id=session_id,
+        method="REPLAY",
+        headers=original.headers or {},
+        body=original.body,
+        query_params=original.query_params,
+        forward_status=status,
+        forward_response=response,
+        forward_error=error,
+        forwarded_at=datetime.utcnow(),
+    )
+    db.add(replay_event)
+    db.commit()
+    db.refresh(replay_event)
+
+    # Publish to dashboard
+    event_data = jsonable_encoder(WebhookEventOut.model_validate(replay_event))
+    await request.app.state.redis.publish(
+        f"webhook:{session_id}",
+        json.dumps(event_data),
+    )
+
+    return {"status": "replayed", "id": replay_event.id, "forward_status": status}
+
+
+# ─── WebSocket /ws/{session_id} ───────────────────────────────────────────────
+# The browser connects here once and stays connected.
+#
+# How it works:
+#   1. Browser opens WebSocket to /ws/my-session
+#   2. We subscribe to Redis channel "webhook:my-session"
+#   3. We run two async tasks in parallel:
+#        - forward_task: listens to Redis, pushes every message to the browser
+#        - disconnect_task: waits for the browser to close the connection
+#   4. Whichever task finishes first (usually disconnect), we cancel the other
+#   5. Clean up the Redis subscription
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+
+    # Each WebSocket connection gets its own Redis pubsub object
+    pubsub = websocket.app.state.redis.pubsub()
+    await pubsub.subscribe(f"webhook:{session_id}")
+
+    async def forward_to_browser():
+        """Read from Redis, send to browser."""
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                await websocket.send_text(message["data"])
+
+    async def wait_for_disconnect():
+        """Block until the browser closes the connection."""
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+
+    forward_task    = asyncio.create_task(forward_to_browser())
+    disconnect_task = asyncio.create_task(wait_for_disconnect())
+
+    # Wait for whichever finishes first
+    _, pending = await asyncio.wait(
+        [forward_task, disconnect_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    for task in pending:
+        task.cancel()
+
+    await pubsub.unsubscribe(f"webhook:{session_id}")
+    await pubsub.aclose()
+
+
+# ─── GET /sessions ──────────────────────────────────────────────────────────
+# Returns all distinct session IDs ordered by most recent activity.
+# Frontend polls this every 5 s to populate the sessions sidebar.
+
+@app.get("/sessions")
+def get_sessions(db: Session = Depends(get_db)):
+    results = (
+        db.query(models.WebhookEvent.session_id)
+        .group_by(models.WebhookEvent.session_id)
+        .order_by(func.max(models.WebhookEvent.received_at).desc())
+        .all()
+    )
+    return [r.session_id for r in results]
+
+
+# ─── PUT /sessions/{session_id}/config ────────────────────────────────────────
+# Save or update the forwarding URL for a session.
+
+@app.put("/sessions/{session_id}/config", response_model=SessionConfigOut)
+def update_session_config(
+    session_id: str,
+    config_in: SessionConfigIn,
+    db: Session = Depends(get_db),
+):
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    if config:
+        config.forward_url = config_in.forward_url
+        config.updated_at = datetime.utcnow()
+    else:
+        config = models.SessionConfig(
+            session_id=session_id,
+            forward_url=config_in.forward_url,
+        )
+        db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+# ─── GET /sessions/{session_id}/config ────────────────────────────────────────
+# Get the forwarding URL for a session.
+
+@app.get("/sessions/{session_id}/config", response_model=SessionConfigOut)
+def get_session_config(session_id: str, db: Session = Depends(get_db)):
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    if not config:
+        return SessionConfigOut(session_id=session_id, forward_url=None)
+    return config
+
+
+# ─── GET /tunnel-url ──────────────────────────────────────────────────────────
+# Returns the current Cloudflare tunnel URL if available.
+# The tunnel container writes its URL to /shared/tunnel-url.txt.
+
+@app.get("/tunnel-url")
+def get_tunnel_url():
+    try:
+        with open("/shared/tunnel-url.txt", "r") as f:
+            url = f.read().strip()
+        return {"url": url or None}
+    except FileNotFoundError:
+        return {"url": None}
+
+
+# ─── GET /health ──────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
