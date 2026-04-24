@@ -9,532 +9,166 @@
   [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)](docker-compose.yml)
 </div>
 
-HookRelay is a self-hosted developer tool that acts as a **middleman between external services and your local application**. It receives webhooks from Stripe, Razorpay, GitHub, or any HTTP service, displays them in a real-time dashboard, and forwards them directly to your running app — with zero config.
+HookRelay is a self-hosted webhook proxy. It catches webhooks from services like Stripe or GitHub, shows them in a real-time dashboard, and forwards them to your local dev server. 
 
-Unlike cloud-hosted alternatives (Webhook.site, RequestBin, Hookdeck), HookRelay runs entirely on your machine inside Docker. **No payload data is ever stored on a third-party server.** This makes it the only free option suitable for developers working with sensitive payment data, health records, or NDA-protected client projects.
+I built this because alternatives like Webhook.site or RequestBin store your payloads on their servers. That's a dealbreaker when you're working with real payment data, health records, or strict client NDAs. HookRelay runs entirely locally in Docker, so your data never leaves your machine.
 
 ---
 
-## Why This Exists
+## Why I built this
 
-Every developer building payment integrations hits the same wall:
+If you've ever built a payment integration, you know the workflow:
+1. Razorpay or Stripe needs a public HTTPS URL to send webhooks to.
+2. Your app is running locally on `localhost:3000` and can't receive them.
+3. You run ngrok, which means sensitive payment payloads are now passing through a third-party server.
+4. If you're using a free tunnel, your URL changes every time you restart it. You spend half your day updating the webhook endpoint in the Stripe dashboard.
 
-1. Razorpay/Stripe needs a **public HTTPS URL** to send webhooks to.
-2. Your app is running on `localhost:3000` — invisible to the internet.
-3. You use ngrok or Webhook.site, but your **payment payload is now sitting on someone else's server**.
-4. The tunnel URL **changes every time you restart**, so you keep updating Razorpay's dashboard.
+HookRelay fixes this. It gives you a stable public URL, catches the events, and proxies them to your local app.
 
-HookRelay solves all four problems:
-
-```
+```text
 Razorpay → https://hooks.yourdomain.com/api/hooks/razorpay
-                        ↓  (captured + displayed in real-time)
+                        ↓  
                    HookRelay Dashboard (localhost)
-                        ↓  (forwarded instantly to your app)
-          http://localhost:3000/api/webhooks/razorpay
-                        ↓  (response recorded)
-                   ✅ 200 OK  or  ❌ 500 Error
+                        ↓  
+           http://localhost:3000/api/webhooks/razorpay
+                        ↓  
+                   200 OK  or  500 Error
 ```
 
 ---
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| 🌐 **Auto Tunnel** | Cloudflare tunnel starts automatically — no account, no config, no signup |
-| 🔒 **Permanent URL** | Optional named tunnel so your webhook URL never changes again (~$9/year for a domain) |
-| 📡 **Real-time Dashboard** | WebSocket-powered live feed — events appear instantly without refresh |
-| 🔀 **Forwarding** | Per-session forwarding URL sends every webhook to your local app automatically |
-| ↻ **Replay** | Re-send any stored event to your app with one click — no new payment triggered |
-| ↓ **Download JSON** | Export any payload as a `.json` file for use in unit tests or mock data |
-| 🟢 **Status Badges** | Green / Yellow / Red badges showing your app's response code for each forwarded event |
-| 🗂️ **Sessions** | Isolated channels per service — `stripe`, `razorpay`, `github`, etc. |
-| 🏠 **100% Local** | All data stored in your local PostgreSQL — zero bytes leave your machine |
+- **Automatic public URLs:** It spins up a Cloudflare quick tunnel automatically on boot. No account required.
+- **Permanent URLs:** If you have a Cloudflare account and a cheap domain, you can set a permanent webhook URL that survives restarts.
+- **Instant dashboard:** A React frontend connected via WebSockets shows webhooks the second they arrive.
+- **Auto-forwarding:** Tell it where your local app is running (e.g., `host.docker.internal:3000`), and it forwards payloads automatically.
+- **Replay events:** Resend any webhook with one click. Good for debugging your handlers without triggering new test payments.
+- **Download JSON:** Export payloads to build mock data for unit tests.
 
 ---
 
 ## Architecture
 
-### High-Level Data Flow
-
-This diagram shows how an external webhook travels from the internet, through the Docker environment, and into your locally running application.
+Here's how a webhook travels from the internet to your local code:
 
 ![HookRelay High-Level Architecture](img/hookrelay-architecture.PNG)
 
-**The flow in plain English:**
-1. Razorpay fires an HTTPS POST to your public tunnel URL.
-2. The `cloudflared` container receives it and passes it to Nginx.
+**The flow:**
+1. An external service hits your public tunnel URL with a POST request.
+2. The `cloudflared` container passes it to Nginx.
 3. Nginx routes `/api/*` requests to FastAPI.
 4. FastAPI saves the event to PostgreSQL and publishes it to Redis.
-5. FastAPI pushes the event to your browser via WebSocket (instant dashboard update).
+5. FastAPI pushes the event to your browser via WebSocket so the dashboard updates instantly.
 6. FastAPI forwards the original payload to your local app via `host.docker.internal`.
-7. Your app's response (200 OK / 500 Error) is recorded back in the database.
+7. Your app's response (like a 200 OK) is recorded back in the database.
 
-### Internal Container Data Flow
-
-This diagram zooms into the Docker environment and shows how the six containers communicate internally.
+And here is how the six Docker containers communicate internally:
 
 ![HookRelay Internal Container Flow](img/hookrelay-inside-docker.png)
 
----
+### Tech stack
 
-## Tech Stack
-
-| Layer | Technology | Purpose |
-|---|---|---|
-| **Backend** | FastAPI + SQLAlchemy | API server, webhook receiver, forwarding engine, WebSocket hub |
-| **Database** | PostgreSQL 15 | Persistent storage for events and session configs |
-| **Message Broker** | Redis 7 | Pub/Sub channel for real-time event broadcasting |
-| **Frontend** | React + Vite | Live dashboard UI |
-| **Proxy** | Nginx | Routes traffic between frontend, API, and WebSocket connections |
-| **Tunnel** | Cloudflare `cloudflared` | Exposes your local HookRelay to the public internet over HTTPS |
-| **Runtime** | Docker Compose | Orchestrates all six containers with one command |
+- **Backend:** FastAPI + SQLAlchemy
+- **Database:** PostgreSQL 15
+- **Message Broker:** Redis 7 
+- **Frontend:** React + Vite
+- **Proxy:** Nginx
+- **Tunnel:** Cloudflare `cloudflared`
 
 ---
 
-## Prerequisites
+## Getting started
 
-Before you start, make sure you have:
+You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Git installed. Docker handles all the actual dependencies (you don't need Python or Node installed locally).
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running (Windows, macOS, or Linux)
-- [Git](https://git-scm.com/downloads) installed
-- ~500 MB of free disk space for Docker images
-
-That's it. No Python, no Node.js, no Redis — Docker handles everything.
-
----
-
-## Quick Start (Zero Config)
-
-Get HookRelay running in under 2 minutes:
-
+1. Clone the repo and boot the containers:
 ```bash
-# 1. Clone the repository
 git clone https://github.com/vishalp-dev24/hookrelay.git
 cd hookrelay
-
-# 2. Start everything
 docker compose up --build
 ```
 
-Wait for all containers to start (~30-60 seconds on first build). You'll see output like:
+2. Wait for the containers to start. The terminal will print out a temporary Cloudflare URL.
+3. Open `http://localhost` in your browser to view the dashboard.
 
-```
-api-1       | INFO:     Uvicorn running on http://0.0.0.0:8000
-tunnel-1    | ==> Quick tunnel mode: temporary URL
-tunnel-1    | ==> Tunnel URL written: https://random-words.trycloudflare.com
-```
+### How to use it
 
-**3. Open your dashboard:** Navigate to [http://localhost](http://localhost) in your browser.
-
-The blue banner at the top displays your public tunnel URL. Copy it and paste it into any webhook provider (Razorpay, Stripe, GitHub, etc.).
+1. **Create a session:** Type a name like `stripe` in the sidebar and press Enter.
+2. **Copy your URL:** Grab the public URL from the blue banner at the top of the dashboard. Paste this into the Stripe/Razorpay developer settings.
+3. **Set your forward destination:** In the dashboard's "FWD" input, enter your local app's URL (e.g., `http://host.docker.internal:3000/api/webhooks`). We use `host.docker.internal` instead of `localhost` so the Docker container knows to route the traffic out to your host machine.
+4. **Test it:** Fire a test webhook from your provider. It will show up in the dashboard and hit your local app. 
 
 ---
 
-## Step-by-Step Setup Guide
+## Setting up a permanent URL
 
-### Step 1: Create a Session
+The default "quick tunnel" gives you a random URL like `https://random-words.trycloudflare.com` that changes every time Docker restarts. If you want a URL that stays the same permanently, you can use a Cloudflare named tunnel. It's free, but you need a domain name.
 
-In the dashboard sidebar, type a descriptive session name (e.g., `razorpay`) in the input box and press **Enter**. Sessions are isolated channels — you can create separate ones for each service.
-
-### Step 2: Copy Your Public Webhook URL
-
-Copy the URL from the blue **🌐 PUBLIC** banner at the top of the dashboard:
-
-```
-https://xxxx-yyyy.trycloudflare.com/api/hooks/razorpay
-```
-
-Go to your external service (e.g., Razorpay Dashboard → Settings → Webhooks) and paste this URL as your webhook endpoint.
-
-### Step 3: Set a Forwarding URL
-
-In the **FWD →** input row on the dashboard, type your local application's webhook endpoint:
-
-```
-http://host.docker.internal:3000/api/webhooks/razorpay
-```
-
-Click **Save**.
-
-> **What is `host.docker.internal`?**
-> This is Docker's built-in DNS name that resolves to your host machine's IP address. It allows containers to reach services running outside Docker. Replace `3000` with whatever port your application is running on.
-
-### Step 4: Trigger a Webhook
-
-Make a test payment or use the **Send test webhook** button in the dashboard. You'll see:
-
-1. The event appear instantly in the dashboard (real-time via WebSocket).
-2. A green **→ 200 OK** badge if your app responded successfully.
-3. A red **→ Error** badge if your app is down or returned an error.
-
-### Step 5: Replay Events
-
-Click **↻ Replay** on any event card to re-send the exact same payload to your app. This is useful for:
-
-- Debugging a webhook handler without triggering a real payment
-- Testing error recovery logic
-- Reproducing edge cases
-
-> **Note:** Replay creates a new event record marked as `REPLAY` so you can distinguish it from the original.
-
-### Step 6: Download Payloads
-
-Click **↓ JSON** on any event to download the raw payload as a `.json` file. Use these files to:
-
-- Build mock data for unit tests
-- Share exact payloads with teammates
-- Document webhook formats
-
----
-
-## Permanent URL Setup (Recommended)
-
-By default, HookRelay uses Cloudflare's free "quick tunnel" which generates a random URL like `https://random-words.trycloudflare.com`. **This URL changes every time you restart Docker.**
-
-To get a **permanent URL that never changes**, follow these steps:
-
-### What You Need
-
-| Item | Cost |
-|---|---|
-| Cloudflare account | Free |
-| Domain name (.com) | ~$9/year |
-| Named tunnel | Free |
-
-### Setup Steps
-
-**1. Create a free Cloudflare account** at [cloudflare.com](https://cloudflare.com).
-
-**2. Add your domain to Cloudflare.** If you already own a domain, change its nameservers to Cloudflare's (shown in the dashboard). If you don't own one, you can buy one directly through Cloudflare Registrar for ~$9/year.
-
-**3. Create a tunnel.** Go to [Cloudflare Zero Trust Dashboard](https://one.cloudflare.com) → Networks → Tunnels → **Create a tunnel**.
-
-**4. Name it** `hookrelay` and copy the tunnel token shown on screen.
-
-**5. Add a public hostname.** In the tunnel configuration:
-   - **Subdomain:** `hooks`
-   - **Domain:** `yourdomain.com`
-   - **Service:** `http://nginx:80`
-
-**6. Create a `.env` file** in your HookRelay project root:
-
-```bash
-cp .env.example .env
-```
-
-Then edit `.env` and fill in your values:
-
+1. Set up a free Cloudflare account and add a domain name to it.
+2. Go to the Zero Trust Dashboard → Networks → Tunnels → Create a tunnel. Name it `hookrelay` and copy the tunnel token.
+3. Add a public hostname to the tunnel (e.g. `hooks.yourdomain.com`). Point the service to `http://nginx:80`.
+4. Copy `.env.example` to `.env` in the project root.
+5. Add your token and hostname to the `.env` file:
 ```env
-CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiNjk2ZDg5...your_token_here
+CLOUDFLARE_TUNNEL_TOKEN=your_token_here
 TUNNEL_HOSTNAME=hooks.yourdomain.com
 ```
+6. Restart Docker (`docker compose down` then `docker compose up -d`).
 
-**7. Restart HookRelay:**
-
-```bash
-docker compose down
-docker compose up --build
-```
-
-Your permanent URL is now live:
-
-```
-https://hooks.yourdomain.com/api/hooks/razorpay
-```
-
-Set this in Razorpay/Stripe **once** — it will never change again, even after restarts.
-
-### How Dual-Mode Tunnel Works
-
-HookRelay automatically detects which mode to use:
-
-```
-.env file has CLOUDFLARE_TUNNEL_TOKEN set?
-    │
-    ├── YES → Named tunnel mode (permanent URL)
-    │         URL: https://hooks.yourdomain.com
-    │
-    └── NO  → Quick tunnel mode (temporary URL, zero config)
-              URL: https://random-words.trycloudflare.com
-```
-
-The tunnel startup script (`tunnel/start.sh`) handles this automatically.
-
----
-
-## Project Structure
-
-```
-hookrelay/
-├── backend/
-│   ├── app/
-│   │   ├── main.py            # FastAPI app — endpoints, WebSocket, forwarding engine
-│   │   ├── models.py          # SQLAlchemy models (WebhookEvent, SessionConfig)
-│   │   ├── schemas.py         # Pydantic request/response schemas
-│   │   └── database.py        # Database connection and session factory
-│   ├── Dockerfile
-│   └── requirements.txt       # Python dependencies (FastAPI, SQLAlchemy, Redis, httpx)
-│
-├── frontend/
-│   ├── src/
-│   │   └── App.jsx            # Complete React dashboard UI
-│   ├── index.html
-│   ├── package.json
-│   └── Dockerfile
-│
-├── nginx/
-│   └── nginx.conf             # Routes: /api/* → FastAPI, /ws/* → WebSocket, / → React
-│
-├── tunnel/
-│   ├── Dockerfile             # Alpine + cloudflared binary (multi-stage build)
-│   └── start.sh               # Dual-mode: named tunnel or quick tunnel
-│
-├── docs/
-│   └── EXTERNAL-SERVICES.md   # Detailed guide for connecting Razorpay, Stripe, GitHub
-│
-├── docker-compose.yml         # Orchestrates all 6 containers
-├── .env.example               # Template for permanent tunnel configuration
-├── .gitignore
-└── README.md
-```
+The script inside the tunnel container checks for that `.env` file. If it finds the token, it boots the permanent tunnel. If not, it falls back to the random quick tunnel.
 
 ---
 
 ## API Reference
 
-All endpoints are served under the `/api/` prefix by Nginx.
-
-### Webhook Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/hooks/{session_id}` | Receive a webhook payload. Saves to DB, publishes to Redis, optionally forwards. |
-| `GET` | `/api/hooks/{session_id}` | List all stored events for a session (newest first). |
-| `DELETE` | `/api/hooks/{session_id}` | Clear all events for a session. |
-| `POST` | `/api/hooks/{session_id}/{event_id}/replay` | Replay a stored event — re-forwards the original payload to your app. |
-
-### Session Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/sessions` | List all active session IDs ordered by most recent activity. |
-| `GET` | `/api/sessions/{session_id}/config` | Get the forwarding URL for a session. |
-| `PUT` | `/api/sessions/{session_id}/config` | Save or update the forwarding URL for a session. |
-
-### System Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/tunnel-url` | Returns the current Cloudflare tunnel URL (read from shared Docker volume). |
-| `GET` | `/api/health` | Health check — returns `{"status": "ok"}`. |
-| `WS` | `/ws/{session_id}` | Real-time WebSocket stream. Events are pushed instantly as JSON. |
-
-### Example: Receive a Webhook via cURL
+You can interact with HookRelay programmatically. All endpoints are under `/api/`.
 
 ```bash
-curl -X POST https://your-tunnel-url.trycloudflare.com/api/hooks/razorpay \
+# Receive a webhook manually
+curl -X POST https://your-tunnel.trycloudflare.com/api/hooks/stripe \
   -H "Content-Type: application/json" \
-  -d '{"event": "payment.captured", "order_id": "order_abc123", "amount": 5000}'
-```
+  -d '{"event": "payment.captured", "amount": 5000}'
 
-### Example: Set a Forwarding URL
-
-```bash
-curl -X PUT http://localhost/api/sessions/razorpay/config \
+# Set a forwarding URL via API
+curl -X PUT http://localhost/api/sessions/stripe/config \
   -H "Content-Type: application/json" \
-  -d '{"forward_url": "http://host.docker.internal:3000/api/webhooks/razorpay"}'
+  -d '{"forward_url": "http://host.docker.internal:3000/webhooks"}'
+
+# Replay an existing event
+curl -X POST http://localhost/api/hooks/stripe/42/replay
 ```
-
-### Example: Replay an Event
-
-```bash
-curl -X POST http://localhost/api/hooks/razorpay/42/replay
-```
-
----
-
-## Database Schema
-
-HookRelay stores all data in a local PostgreSQL database. Nothing is ever sent to the cloud.
-
-### Table: `webhook_events`
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | Integer (PK) | Auto-incrementing event ID |
-| `session_id` | String(100) | Session this event belongs to (e.g., `razorpay`) |
-| `method` | String(10) | HTTP method (`POST`, `GET`, or `REPLAY`) |
-| `headers` | JSON | Complete request headers as key-value pairs |
-| `body` | Text | Raw request body (usually JSON) |
-| `query_params` | JSON | URL query parameters |
-| `received_at` | DateTime | Timestamp when the webhook was received |
-| `forward_status` | Integer | HTTP status code returned by your app (e.g., `200`, `500`) |
-| `forward_response` | Text | First 2000 chars of your app's response body |
-| `forward_error` | Text | Error message if forwarding failed (e.g., connection refused) |
-| `forwarded_at` | DateTime | Timestamp when the webhook was forwarded |
-
-### Table: `session_configs`
-
-| Column | Type | Description |
-|---|---|---|
-| `session_id` | String(100) (PK) | Session identifier |
-| `forward_url` | Text | URL to forward webhooks to (e.g., `http://host.docker.internal:3000/...`) |
-| `created_at` | DateTime | When this config was first created |
-| `updated_at` | DateTime | When this config was last modified |
-
----
-
-## How Forwarding Works
-
-When a webhook arrives at `/api/hooks/{session_id}`, FastAPI checks if a forwarding URL is configured for that session. If one exists, it immediately `POST`s the original payload to your app using Python's `httpx` library.
-
-```python
-# Simplified version of what happens inside main.py
-async with httpx.AsyncClient(timeout=10.0) as client:
-    response = await client.post(
-        forward_url,                              # Your app's endpoint
-        content=original_raw_body,                # Exact same bytes
-        headers={"Content-Type": content_type},   # Preserves content type
-    )
-```
-
-The forwarding result (status code, response body, or error message) is saved back to the database so you can see it in the dashboard.
-
-### Why `host.docker.internal`?
-
-HookRelay runs inside Docker. Your application runs outside Docker on your host machine. Docker provides a special DNS name — `host.docker.internal` — that resolves to your host machine's IP address.
-
-```
-┌─────────────────────────────┐
-│  Docker Network             │
-│                             │
-│  FastAPI ──httpx.post()──►──┼──► host.docker.internal:3000
-│                             │         │
-└─────────────────────────────┘         │
-                                        ▼
-                               Your app on localhost:3000
-```
-
-This means you can forward to any port on your machine: `3000`, `8080`, `4200`, etc.
-
----
-
-## How Real-Time Updates Work
-
-HookRelay uses a **Redis Pub/Sub + WebSocket** pipeline to deliver instant updates to your browser:
-
-1. **Webhook arrives** → FastAPI saves it to PostgreSQL.
-2. **FastAPI publishes** the event JSON to Redis channel `webhook:{session_id}`.
-3. **FastAPI's WebSocket handler** subscribes to that Redis channel.
-4. **Redis pushes** the message to the WebSocket handler.
-5. **WebSocket sends** the JSON to your browser instantly.
-
-This means the dashboard updates the moment a webhook arrives — no polling, no refresh needed.
-
----
-
-## Troubleshooting
-
-### "I can't see the tunnel URL in the dashboard"
-
-The tunnel container might still be starting. Wait 15-30 seconds and refresh. Check tunnel logs:
-
-```bash
-docker compose logs tunnel
-```
-
-### "Forwarding says 'connection refused'"
-
-Your local app isn't running, or it's on a different port. Make sure:
-
-1. Your app is running (`npm run dev`, `python manage.py runserver`, etc.)
-2. The port in the forwarding URL matches your app's port
-3. You're using `host.docker.internal` (not `localhost`)
-
-```
-✅ http://host.docker.internal:3000/api/webhooks
-❌ http://localhost:3000/api/webhooks        ← won't work from inside Docker
-```
-
-### "Events appear in the dashboard but not in my app"
-
-Check that you've saved a forwarding URL. Look for the green **✓ Saved** confirmation after clicking Save in the **FWD →** row.
-
-### "The tunnel URL changed after restart"
-
-This is expected with the free quick tunnel. To get a permanent URL, follow the [Permanent URL Setup](#permanent-url-setup-recommended) section above (~$9/year for a domain).
-
-### "Docker build is slow"
-
-First build downloads all base images (~500 MB). Subsequent builds use Docker's cache and are much faster. If you want to rebuild from scratch:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
-
-### "Port 80 is already in use"
-
-Another service (like IIS, Apache, or another Docker container) is using port 80. Either stop that service or change the Nginx port in `docker-compose.yml`:
-
-```yaml
-nginx:
-  ports:
-    - "8080:80"  # Use port 8080 instead
-```
-
-Then access the dashboard at `http://localhost:8080`.
 
 ---
 
 ## Data Privacy
 
-HookRelay is designed with a **zero-cloud-storage** principle:
+All your data stays on your machine. Webhook payloads and session configurations are saved to the local PostgreSQL volume. The dashboard state lives in your browser memory. 
 
-| Component | Where data lives | Who can access it |
-|---|---|---|
-| Webhook payloads | Your local PostgreSQL volume | Only you |
-| Session configs | Your local PostgreSQL volume | Only you |
-| Tunnel URL | Docker shared volume (RAM) | Only your containers |
-| Dashboard state | Your browser memory | Only you |
-
-**What passes through Cloudflare:** The webhook payload transits through Cloudflare's network (encrypted via HTTPS/WireGuard) on its way to your machine. Cloudflare's [privacy policy](https://www.cloudflare.com/privacypolicy/) states they do not log request content. For maximum privacy, use [frp on your own VPS](https://github.com/fatedier/frp) instead of Cloudflare.
+The webhook payloads do transit through Cloudflare's network on their way to your machine. Their privacy policy states they do not log request content. If you want to avoid third-party networks entirely, you can replace the Cloudflare container with something like [frp](https://github.com/fatedier/frp) pointing to your own VPS.
 
 ---
 
-## Stopping and Cleaning Up
+## Troubleshooting
 
-```bash
-# Stop all containers (data is preserved)
-docker compose down
+**"Forwarding says 'connection refused'"**
+Your local app probably isn't running, or it's on a different port. Also make sure you are using `host.docker.internal` in your forwarding URL, not `localhost`. `localhost` inside the FastAPI container just points back to the container itself, not your host machine.
 
-# Stop and DELETE all data (events, configs, everything)
-docker compose down -v
+**"I can't see the tunnel URL in the dashboard"**
+The Cloudflare container sometimes takes 15-30 seconds to fetch the URL on a cold boot. Wait a moment and refresh.
 
-# Rebuild after code changes
-docker compose up --build
-```
-
----
+**"Port 80 is already in use"**
+If you have IIS, Apache, or another Docker project using port 80, the Nginx container will fail to start. Edit `docker-compose.yml` and change the Nginx port mapping from `80:80` to `8080:80`. Then view the dashboard at `http://localhost:8080`.
 
 ## Contributing
-
-Contributions are welcome. To get started:
 
 ```bash
 git clone https://github.com/vishalp-dev24/hookrelay.git
 cd hookrelay
 docker compose up --build
 ```
-
-The backend auto-reloads on code changes (mounted volume). The frontend hot-reloads via Vite.
-
----
+The FastAPI backend auto-reloads when you change Python files. The React frontend hot-reloads via Vite. 
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
-
-Copyright (c) 2026 HookRelay Contributors
+MIT License. Copyright (c) 2026 HookRelay Contributors.
