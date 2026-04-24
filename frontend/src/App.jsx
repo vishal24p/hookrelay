@@ -274,6 +274,17 @@ export default function App() {
   const allSessions = Array.from(allSessionsSet)
   const filteredSessions = allSessions.filter(s => s.toLowerCase().includes(searchQuery.toLowerCase()))
 
+  // ── Sync Local History Across Tabs ────────────────────────────────────────
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'hookrelay_history' && e.newValue) {
+        setLocalHistory(JSON.parse(e.newValue))
+      }
+    }
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
+  }, [])
+
   // ── Layout State ──────────────────────────────────────────────────────────
   const [feedLayout, setFeedLayout] = useState(() => localStorage.getItem('hookrelay_feed_layout') || 'list')
   function toggleLayout(type) {
@@ -490,12 +501,13 @@ export default function App() {
             
             {/* Feed Toolbar */}
             <div style={{ 
-              maxWidth: feedLayout === 'list' ? '1000px' : 'none', 
-              margin: '0 auto', 
+              width: '100%', 
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center',
-              marginBottom: '16px'
+              marginBottom: '24px',
+              borderBottom: '1px solid rgba(255,255,255,0.05)',
+              paddingBottom: '16px'
             }}>
               <div style={{ color: '#A1A1AA', fontSize: '14px', fontWeight: 500 }}>
                 {events.length} {events.length === 1 ? 'Event' : 'Events'} Received
@@ -535,22 +547,23 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ 
-              maxWidth: feedLayout === 'list' ? '1000px' : 'none', 
-              margin: '0 auto',
-              display: feedLayout === 'grid' ? 'grid' : 'block',
-              gridTemplateColumns: feedLayout === 'grid' ? 'repeat(auto-fill, minmax(450px, 1fr))' : 'none',
-              gap: feedLayout === 'grid' ? '16px' : '0'
-            }}>
-              {events.length === 0 ? (
-                <div style={{ maxWidth: 400, margin: '60px auto', textAlign: 'center', padding: '40px', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
-                  <div style={{ width: 48, height: 48, background: 'rgba(47,47,228,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid rgba(47,47,228,0.2)', boxShadow: '0 0 16px rgba(47,47,228,0.15)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F2FE4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
-                  </div>
-                  <h3 style={{ margin: '0 0 8px', color: '#FAFAFA', fontSize: '16px', fontWeight: 500 }}>Waiting for events</h3>
-                  <p style={{ margin: 0, color: '#A1A1AA', fontSize: '13px', lineHeight: 1.5 }}>Your endpoint is live. Point your third-party service to the URL above.</p>
+            {events.length === 0 ? (
+              <div style={{ maxWidth: 400, margin: '60px auto', textAlign: 'center', padding: '40px', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
+                <div style={{ width: 48, height: 48, background: 'rgba(47,47,228,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid rgba(47,47,228,0.2)', boxShadow: '0 0 16px rgba(47,47,228,0.15)' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F2FE4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
                 </div>
-              ) : events.map(ev => {
+                <h3 style={{ margin: '0 0 8px', color: '#FAFAFA', fontSize: '16px', fontWeight: 500 }}>Waiting for events</h3>
+                <p style={{ margin: 0, color: '#A1A1AA', fontSize: '13px', lineHeight: 1.5 }}>Your endpoint is live. Point your third-party service to the URL above.</p>
+              </div>
+            ) : (
+              <div style={{ 
+                maxWidth: feedLayout === 'list' ? '1000px' : 'none', 
+                margin: '0 auto',
+                display: feedLayout === 'grid' ? 'grid' : 'block',
+                gridTemplateColumns: feedLayout === 'grid' ? 'repeat(auto-fill, minmax(450px, 1fr))' : 'none',
+                gap: feedLayout === 'grid' ? '16px' : '0'
+              }}>
+                {events.map(ev => {
                 const badge = getForwardBadge(ev)
                 const isReplaying = replayingId === ev.id
                 return (
@@ -631,11 +644,11 @@ export default function App() {
                   </div>
                 )
               })}
-            </div>
+              </div>
+            )}
+          </div>
           </div>
         </div>
-
-      </div>
 
       {/* ── Overlay Modal ────────────────────────────────────────────────── */}
       {isOverlayOpen && (
