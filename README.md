@@ -2,6 +2,11 @@
 
 > Catch webhooks. Inspect them. Forward to your local app. Replay on demand. **All data stays on your machine.**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?logo=fastapi&logoColor=white)](backend/requirements.txt)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)](docker-compose.yml)
+
 HookRelay is a self-hosted developer tool that acts as a **middleman between external services and your local application**. It receives webhooks from Stripe, Razorpay, GitHub, or any HTTP service, displays them in a real-time dashboard, and forwards them directly to your running app — with zero config.
 
 Unlike cloud-hosted alternatives (Webhook.site, RequestBin, Hookdeck), HookRelay runs entirely on your machine inside Docker. **No payload data is ever stored on a third-party server.** This makes it the only free option suitable for developers working with sensitive payment data, health records, or NDA-protected client projects.
@@ -528,4 +533,6 @@ The backend auto-reloads on code changes (mounted volume). The frontend hot-relo
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 HookRelay Contributors
