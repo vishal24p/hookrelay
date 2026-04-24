@@ -111,7 +111,7 @@ Get HookRelay running in under 2 minutes:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/hookrelay.git
+git clone https://github.com/vishalp-dev24/hookrelay.git
 cd hookrelay
 
 # 2. Start everything
