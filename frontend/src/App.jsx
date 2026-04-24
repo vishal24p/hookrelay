@@ -281,6 +281,37 @@ export default function App() {
     localStorage.setItem('hookrelay_feed_layout', type)
   }
 
+  // ── Favicon Inversion ─────────────────────────────────────────────────────
+  useEffect(() => {
+    // Dynamically invert the favicon using canvas so it is visible in dark browser tabs
+    const img = new Image()
+    img.crossOrigin = "Anonymous"
+    img.src = '/logo.png'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width || 32
+      canvas.height = img.height || 32
+      const ctx = canvas.getContext('2d')
+      
+      // Apply the same CSS filter used for the UI logo
+      ctx.filter = 'brightness(0) invert(1)'
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      
+      try {
+        const dataURL = canvas.toDataURL('image/png')
+        let link = document.querySelector("link[rel~='icon']")
+        if (!link) {
+          link = document.createElement('link')
+          link.rel = 'icon'
+          document.head.appendChild(link)
+        }
+        link.href = dataURL
+      } catch (e) {
+        console.error("Could not update favicon:", e)
+      }
+    }
+  }, [])
+
   // ── Render ────────────────────────────────────────────────────────────────
   const btnStyle = (primary) => ({
     background: primary ? '#2F2FE4' : 'rgba(255,255,255,0.05)',
