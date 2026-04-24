@@ -65,6 +65,9 @@ services:
     build: ./tunnel
     volumes:
       - tunnel_data:/shared
+    environment:
+      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+      - TUNNEL_HOSTNAME=${TUNNEL_HOSTNAME:-}
     depends_on:
       - nginx
     restart: unless-stopped
