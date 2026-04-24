@@ -1,4 +1,4 @@
-<img src="hookrelay-logo.png" alt="HookRelay Logo" width="120" align="left"/>
+<img src="hookrelay-logo.png" alt="HookRelay Logo" width="120" align="right"/>
 
 # HookRelay
 
