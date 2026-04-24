@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="hookrelay-logo.png" alt="HookRelay Logo" width="400"/>
+</div>
+
 # HookRelay
 
 > Catch webhooks. Inspect them. Forward to your local app. Replay on demand. **All data stays on your machine.**

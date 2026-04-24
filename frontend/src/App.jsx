@@ -249,8 +249,8 @@ export default function App() {
 
           {/* Brand + input */}
           <div style={{ padding: '20px 14px 14px', borderBottom: '1px solid #2d2d3d' }}>
-            <div style={{ color: '#7dd3fc', fontSize: 13, fontWeight: 'bold', marginBottom: 14, letterSpacing: '0.02em' }}>
-              HookRelay
+            <div style={{ marginBottom: 14 }}>
+              <img src="/logo.png" alt="HookRelay" style={{ height: 22, display: 'block' }} />
             </div>
             <input
               type="text"
