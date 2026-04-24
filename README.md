@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="hookrelay-logo.png" alt="HookRelay Logo" width="120" />
+  <img src="img/hookrelay-logo.png" alt="HookRelay Logo" width="120" />
   <h1>HookRelay</h1>
   <p>Catch webhooks. Inspect them. Forward to your local app. Replay on demand.<br><strong>All data stays on your machine.</strong></p>
 
