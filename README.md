@@ -1,6 +1,4 @@
-<div align="center">
-  <img src="hookrelay-logo.png" alt="HookRelay Logo" width="400"/>
-</div>
+<img src="hookrelay-logo.png" alt="HookRelay Logo" width="120" align="right"/>
 
 # HookRelay
 
