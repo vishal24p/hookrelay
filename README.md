@@ -60,7 +60,7 @@ Razorpay → https://hooks.yourdomain.com/api/hooks/razorpay
 
 This diagram shows how an external webhook travels from the internet, through the Docker environment, and into your locally running application.
 
-![HookRelay High-Level Architecture](img\hookrelay-architecture.PNG)
+![HookRelay High-Level Architecture](img/hookrelay-architecture.PNG)
 
 **The flow in plain English:**
 1. Razorpay fires an HTTPS POST to your public tunnel URL.
@@ -75,7 +75,7 @@ This diagram shows how an external webhook travels from the internet, through th
 
 This diagram zooms into the Docker environment and shows how the six containers communicate internally.
 
-![HookRelay Internal Container Flow](img\hookrelay-inside-docker.png)
+![HookRelay Internal Container Flow](img/hookrelay-inside-docker.png)
 
 ---
 
