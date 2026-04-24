@@ -20,7 +20,8 @@ export default function App() {
 
   const [events, setEvents]         = useState([])
   const [connected, setConnected]   = useState(false)
-  const [copied, setCopied]         = useState(false)
+  const [copiedLocal, setCopiedLocal] = useState(false)
+  const [copiedTunnel, setCopiedTunnel] = useState(false)
   const [sessions, setSessions]     = useState([])
   const [inputValue, setInputValue] = useState('')
   const [forwardUrl, setForwardUrl] = useState('')
@@ -85,7 +86,6 @@ export default function App() {
         if (cancelled) return
         const newEvent = JSON.parse(e.data)
         setEvents(prev => {
-          // If this is an update to an existing event (forwarding result), replace it
           const idx = prev.findIndex(ev => ev.id === newEvent.id)
           if (idx !== -1) {
             const updated = [...prev]
@@ -133,10 +133,18 @@ export default function App() {
   }, [])
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  function copyText(text) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+  function copyLocal() {
+    navigator.clipboard.writeText(webhookUrl).then(() => {
+      setCopiedLocal(true)
+      setTimeout(() => setCopiedLocal(false), 2000)
+    })
+  }
+
+  function copyTunnel() {
+    if(!tunnelWebhookUrl) return
+    navigator.clipboard.writeText(tunnelWebhookUrl).then(() => {
+      setCopiedTunnel(true)
+      setTimeout(() => setCopiedTunnel(false), 2000)
     })
   }
 
@@ -162,7 +170,8 @@ export default function App() {
         event: 'payment.captured',
         order_id: 'order_' + Math.random().toString(36).slice(2, 10),
         amount: Math.floor(Math.random() * 9000) + 1000,
-        currency: 'INR',
+        currency: 'USD',
+        status: 'success'
       }),
     })
   }
@@ -204,117 +213,133 @@ export default function App() {
   }
 
   function getForwardBadge(ev) {
-    if (ev.forward_error) return { color: '#fca5a5', bg: '#450a0a', text: `→ Error: ${ev.forward_error.slice(0, 40)}` }
+    if (ev.forward_error) return { bg: 'rgba(239,68,68,0.1)', text: '#F87171', border: 'rgba(239,68,68,0.2)', label: 'Error' }
     if (ev.forward_status == null) return null
-    if (ev.forward_status >= 200 && ev.forward_status < 300) return { color: '#86efac', bg: '#14532d', text: `→ ${ev.forward_status} OK` }
-    if (ev.forward_status >= 400 && ev.forward_status < 500) return { color: '#fbbf24', bg: '#422006', text: `→ ${ev.forward_status} Client Error` }
-    return { color: '#fca5a5', bg: '#450a0a', text: `→ ${ev.forward_status} Server Error` }
+    if (ev.forward_status >= 200 && ev.forward_status < 300) return { bg: 'rgba(16,185,129,0.1)', text: '#34D399', border: 'rgba(16,185,129,0.2)', label: `${ev.forward_status} OK` }
+    if (ev.forward_status >= 400 && ev.forward_status < 500) return { bg: 'rgba(245,158,11,0.1)', text: '#FBBF24', border: 'rgba(245,158,11,0.2)', label: `${ev.forward_status} Client Error` }
+    return { bg: 'rgba(239,68,68,0.1)', text: '#F87171', border: 'rgba(239,68,68,0.2)', label: `${ev.forward_status} Server Error` }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const btnStyle = (bg) => ({
-    background: bg, color: 'white', border: 'none',
-    padding: '6px 12px', borderRadius: 5, cursor: 'pointer',
-    fontSize: 11, fontFamily: 'monospace', whiteSpace: 'nowrap',
+  const btnStyle = (primary) => ({
+    background: primary ? '#2F2FE4' : 'rgba(255,255,255,0.05)',
+    color: primary ? '#FAFAFA' : '#E4E4E7',
+    border: primary ? '1px solid #2F2FE4' : '1px solid rgba(255,255,255,0.1)',
+    padding: '6px 12px', 
+    borderRadius: '6px', 
+    cursor: 'pointer',
+    fontSize: '12px', 
+    fontFamily: '"Geist", system-ui, sans-serif',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+    transition: 'all 0.2s ease',
+    boxShadow: primary ? '0 4px 12px rgba(47, 47, 228, 0.25)' : 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   })
 
   return (
     <>
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%       { opacity: 0.35; transform: scale(0.75); }
+        @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Fira+Code:wght@400;500&display=swap');
+        
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(47, 47, 228, 0.4); }
+          50%       { opacity: 0.8; transform: scale(0.95); box-shadow: 0 0 0 6px rgba(47, 47, 228, 0); }
         }
         * { box-sizing: border-box; }
-        body { margin: 0; background: #0f0f1a; }
-        ::-webkit-scrollbar { width: 5px; }
+        body { 
+          margin: 0; 
+          background: #09090B; 
+          color: #FAFAFA;
+          font-family: 'Geist', system-ui, sans-serif;
+          -webkit-font-smoothing: antialiased;
+        }
+        
+        /* Subtle Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #2d2d3d; border-radius: 3px; }
-        input::placeholder { color: #374151; }
-        input:focus { border-color: #3b4fd8 !important; }
-        button:hover { opacity: 0.85; }
-        button:active { transform: scale(0.97); }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; border: 2px solid #09090B; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+        
+        /* Interactive Elements */
+        button:hover { 
+          transform: translateY(-1px); 
+          filter: brightness(1.15);
+        }
+        button:active { transform: scale(0.98); }
+        
+        .code-font { font-family: 'Fira Code', monospace; }
+        
+        .event-card { transition: all 0.2s ease; }
+        .event-card:hover {
+          border-color: rgba(255,255,255,0.12) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 8px 16px -4px rgba(0,0,0,0.4);
+        }
       `}</style>
 
-      <div style={{ display: 'flex', height: '100vh', fontFamily: 'monospace', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
 
         {/* ── Sidebar ──────────────────────────────────────────────────────── */}
         <div style={{
           width: 240, flexShrink: 0,
-          background: '#161622',
-          borderRight: '1px solid #2d2d3d',
+          background: '#121214',
+          borderRight: '1px solid rgba(255, 255, 255, 0.05)',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
+          zIndex: 10
         }}>
 
           {/* Brand + input */}
-          <div style={{ padding: '20px 14px 14px', borderBottom: '1px solid #2d2d3d' }}>
-            <div style={{ marginBottom: 14 }}>
-              <img src="/logo.png" alt="HookRelay" style={{ height: 22, display: 'block' }} />
+          <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <img src="/logo.png" alt="HookRelay Logo" style={{ height: 24, display: 'block', filter: 'brightness(0) invert(1)' }} />
+              <span style={{ fontSize: '15px', fontWeight: 600, color: '#FAFAFA', letterSpacing: '-0.02em', fontFamily: '"Geist", system-ui, sans-serif' }}>HookRelay</span>
             </div>
             <input
               type="text"
               value={inputValue}
               onChange={e => setInputValue(e.target.value)}
               onKeyDown={handleInputKeyDown}
-              placeholder="Session name… ↵"
+              placeholder="Jump to session... ↵"
               style={{
-                width: '100%',
-                background: '#0f0f1a',
-                border: '1px solid #2d2d3d',
-                borderRadius: 6,
-                color: '#e2e8f0',
-                fontSize: 12,
-                padding: '7px 10px',
-                outline: 'none',
-                fontFamily: 'monospace',
-                transition: 'border-color 0.15s',
+                width: '100%', background: '#09090B', border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '6px', color: '#FAFAFA', fontSize: '12px', padding: '8px 10px',
+                outline: 'none', transition: 'all 0.2s ease', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.2)'
               }}
+              onFocus={e => { e.target.style.borderColor = '#2F2FE4'; e.target.style.boxShadow = '0 0 0 1px #2F2FE4'; }}
+              onBlur={e => { e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'; e.target.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.2)'; }}
             />
           </div>
 
           {/* Sessions label */}
-          <div style={{
-            padding: '10px 14px 6px',
-            color: '#374151',
-            fontSize: 10,
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-          }}>
-            Sessions
+          <div style={{ padding: '16px 16px 8px', color: '#71717A', fontSize: '10px', letterSpacing: '0.05em', fontWeight: 600, textTransform: 'uppercase' }}>
+            Recent Sessions
           </div>
 
           {/* Sessions list */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 6px 12px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 16px' }}>
             {sessions.length === 0 ? (
-              <div style={{ color: '#374151', fontSize: 11, padding: '12px 8px', textAlign: 'center' }}>
-                No sessions yet
-              </div>
+              <div style={{ color: '#52525B', fontSize: '12px', padding: '12px', textAlign: 'center' }}>No active sessions</div>
             ) : sessions.map(s => {
               const active = s === sessionId
               return (
                 <div
-                  key={s}
-                  onClick={() => switchSession(s)}
+                  key={s} onClick={() => switchSession(s)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '8px 10px', borderRadius: 6, marginBottom: 2,
-                    cursor: 'pointer',
-                    background: active ? '#1e1e2e' : 'transparent',
-                    border: `1px solid ${active ? '#2d2d3d' : 'transparent'}`,
-                    color: active ? '#e2e8f0' : '#4b5563',
-                    fontSize: 12,
-                    transition: 'background 0.12s, color 0.12s',
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: '6px', marginBottom: 2,
+                    cursor: 'pointer', background: active ? 'rgba(255,255,255,0.05)' : 'transparent',
+                    color: active ? '#FAFAFA' : '#A1A1AA', fontSize: '12px', fontWeight: active ? 500 : 400, transition: 'all 0.15s ease',
                   }}
                 >
                   <div style={{
-                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                    background: active ? '#7dd3fc' : '#1f2937',
-                    animation: active ? 'pulse 2s ease-in-out infinite' : 'none',
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: active ? '#2F2FE4' : 'rgba(255,255,255,0.1)',
+                    boxShadow: active ? '0 0 8px rgba(47, 47, 228, 0.8)' : 'none',
                   }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {s}
-                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s}</span>
                 </div>
               )
             })}
@@ -322,159 +347,161 @@ export default function App() {
         </div>
 
         {/* ── Main content ─────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
-
-          {/* Session label */}
-          <p style={{ color: '#64748b', fontSize: 12, marginTop: 0, marginBottom: 14 }}>
-            Session: <strong style={{ color: '#94a3b8' }}>{sessionId}</strong>
-          </p>
-
-          {/* Connection badge */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#09090B' }}>
+          
+          {/* ── Top Header (Compact) ───────────────────────────────────────── */}
           <div style={{
-            display: 'inline-block', padding: '6px 14px',
-            borderRadius: 6, fontSize: 12, marginBottom: 18,
-            background: connected ? '#14532d' : '#450a0a',
-            color: connected ? '#86efac' : '#fca5a5',
+            background: '#121214', borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+            padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '12px', zIndex: 5
           }}>
-            {connected ? '● Connected — waiting for webhooks' : '● Disconnected — reconnecting...'}
-          </div>
-
-          {/* Tunnel URL banner */}
-          {tunnelUrl && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              background: '#172554', border: '1px solid #1e3a8a',
-              borderRadius: 8, padding: '9px 14px', marginBottom: 12,
-            }}>
-              <span style={{ color: '#60a5fa', fontSize: 11, fontWeight: 'bold' }}>🌐 PUBLIC</span>
-              <span style={{ color: '#93c5fd', fontSize: 12, flex: 1, wordBreak: 'break-all' }}>
-                {tunnelWebhookUrl}
-              </span>
-              <button onClick={() => copyText(tunnelWebhookUrl)} style={btnStyle('#1d4ed8')}>
-                Copy
-              </button>
-            </div>
-          )}
-
-          {/* Webhook URL row */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            background: '#1e1e2e', border: '1px solid #2d2d3d',
-            borderRadius: 8, padding: '9px 14px', marginBottom: 12,
-          }}>
-            <span style={{ color: '#64748b', fontSize: 11, fontWeight: 'bold' }}>LOCAL</span>
-            <span style={{ color: '#94a3b8', fontSize: 12, flex: 1, wordBreak: 'break-all' }}>
-              {webhookUrl}
-            </span>
-            <button onClick={() => copyText(webhookUrl)} style={btnStyle(copied ? '#14532d' : '#374151')}>
-              {copied ? '✓' : 'Copy'}
-            </button>
-          </div>
-
-          {/* Forwarding URL input */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            background: '#1e1e2e', border: '1px solid #2d2d3d',
-            borderRadius: 8, padding: '9px 14px', marginBottom: 18,
-          }}>
-            <span style={{ color: '#64748b', fontSize: 11, fontWeight: 'bold', flexShrink: 0 }}>FWD →</span>
-            <input
-              type="text"
-              value={forwardUrl}
-              onChange={e => { setForwardUrl(e.target.value); setForwardSaved(false) }}
-              onKeyDown={handleForwardKeyDown}
-              placeholder="http://host.docker.internal:3000/api/webhooks/razorpay"
-              style={{
-                flex: 1, background: 'transparent', border: 'none',
-                color: '#e2e8f0', fontSize: 12, outline: 'none',
-                fontFamily: 'monospace',
-              }}
-            />
-            <button onClick={saveForwardUrl} style={btnStyle(forwardSaved ? '#14532d' : '#1d4ed8')}>
-              {forwardSaved ? '✓ Saved' : 'Save'}
-            </button>
-          </div>
-
-          {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
-            <button onClick={sendTestWebhook} style={btnStyle('#1d4ed8')}>
-              Send test webhook
-            </button>
-            <button onClick={clearSession} style={btnStyle('#7f1d1d')}>
-              Clear session
-            </button>
-          </div>
-
-          {/* Events list */}
-          {events.length === 0 ? (
-            <div style={{
-              color: '#4b5563', textAlign: 'center', padding: 48,
-              border: '1px dashed #2d2d3d', borderRadius: 8, fontSize: 13,
-            }}>
-              No webhooks yet — copy the URL above and paste it into any service
-            </div>
-          ) : events.map(ev => {
-            const badge = getForwardBadge(ev)
-            const isReplaying = replayingId === ev.id
-            return (
-              <div key={ev.id} style={{
-                background: '#1e1e2e', border: '1px solid #2d2d3d',
-                borderRadius: 8, padding: '14px 16px', marginBottom: 12,
-              }}>
-                {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{
-                    color: ev.method === 'REPLAY' ? '#c084fc' : '#86efac',
-                    fontWeight: 'bold',
-                  }}>
-                    {ev.method}
-                  </span>
-                  <span style={{ color: '#7dd3fc' }}>/hooks/{ev.session_id}</span>
-
-                  {/* Forward status badge */}
-                  {badge && (
-                    <span style={{
-                      background: badge.bg, color: badge.color,
-                      padding: '2px 8px', borderRadius: 4, fontSize: 10,
-                    }}>
-                      {badge.text}
-                    </span>
-                  )}
-
-                  <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, flexShrink: 0 }}>
-                    {new Date(ev.received_at).toLocaleTimeString()}
-                  </span>
-                </div>
-
-                {/* Body */}
-                <pre style={{ color: '#fbbf24', fontSize: 12, whiteSpace: 'pre-wrap', margin: '0 0 8px 0' }}>
-                  {ev.body ? parseBody(ev.body) : 'no body'}
-                </pre>
-
-                {/* Forward response (if present) */}
-                {ev.forward_response && (
-                  <details style={{ marginBottom: 8 }}>
-                    <summary style={{ color: '#64748b', fontSize: 11, cursor: 'pointer' }}>
-                      Response from your app
-                    </summary>
-                    <pre style={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'pre-wrap', margin: '6px 0 0', padding: '8px', background: '#0f0f1a', borderRadius: 4 }}>
-                      {ev.forward_response}
-                    </pre>
-                  </details>
-                )}
-
-                {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => replayEvent(ev)} style={btnStyle(isReplaying ? '#14532d' : '#374151')}>
-                    {isReplaying ? '✓ Replayed' : '↻ Replay'}
-                  </button>
-                  <button onClick={() => downloadEvent(ev)} style={btnStyle('#374151')}>
-                    ↓ JSON
-                  </button>
+            {/* Row 1: Session & Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#FAFAFA', letterSpacing: '-0.02em' }}>
+                  {sessionId}
+                </h1>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 10px', borderRadius: '12px',
+                  background: connected ? 'rgba(47, 47, 228, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                  border: connected ? '1px solid rgba(47, 47, 228, 0.2)' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: connected ? '#818CF8' : '#A1A1AA', fontSize: '11px', fontWeight: 500
+                }}>
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: connected ? '#2F2FE4' : '#52525B', animation: connected ? 'pulse-dot 2s infinite' : 'none' }} />
+                  {connected ? 'Listening' : 'Disconnected'}
                 </div>
               </div>
-            )
-          })}
+              
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={sendTestWebhook} style={btnStyle(false)}>Trigger Test</button>
+                <button onClick={clearSession} style={{...btnStyle(false), color: '#FCA5A5', borderColor: 'rgba(239, 68, 68, 0.2)', background: 'transparent'}}>Clear</button>
+              </div>
+            </div>
+
+            {/* Row 2: Compact URLs & Forwarding */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden' }}>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>LOCAL</span>
+                <span className="code-font" style={{ flex: 1, fontSize: '12px', color: '#D4D4D8', padding: '6px 10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{webhookUrl}</span>
+                <button onClick={copyLocal} style={{ background: 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: copiedLocal ? '#818CF8' : '#A1A1AA', fontSize: '11px', padding: '6px 12px', cursor: 'pointer' }}>
+                  {copiedLocal ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+
+              {tunnelUrl && (
+                <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>PUBLIC</span>
+                  <span className="code-font" style={{ flex: 1, fontSize: '12px', color: '#D4D4D8', padding: '6px 10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tunnelWebhookUrl}</span>
+                  <button onClick={copyTunnel} style={{ background: 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: copiedTunnel ? '#818CF8' : '#A1A1AA', fontSize: '11px', padding: '6px 12px', cursor: 'pointer' }}>
+                    {copiedTunnel ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              )}
+
+              <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', focusWithin: 'border-color: #2F2FE4' }}>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>FWD</span>
+                <input 
+                  type="text" value={forwardUrl} onChange={e => { setForwardUrl(e.target.value); setForwardSaved(false) }} onKeyDown={handleForwardKeyDown}
+                  className="code-font" placeholder="http://localhost:3000/api..."
+                  style={{ flex: 1, background: 'transparent', border: 'none', color: '#FAFAFA', fontSize: '12px', padding: '6px 10px', outline: 'none' }}
+                />
+                <button onClick={saveForwardUrl} style={{ background: forwardSaved ? '#10B981' : 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: forwardSaved ? '#000' : '#A1A1AA', fontSize: '11px', padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
+                  {forwardSaved ? 'Saved' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Feed ─────────────────────────────────────────────────────────── */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '24px', position: 'relative' }}>
+            {events.length === 0 ? (
+              <div style={{ maxWidth: 400, margin: '60px auto', textAlign: 'center', padding: '40px', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
+                <div style={{ width: 48, height: 48, background: 'rgba(47,47,228,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid rgba(47,47,228,0.2)', boxShadow: '0 0 16px rgba(47,47,228,0.15)' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F2FE4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                </div>
+                <h3 style={{ margin: '0 0 8px', color: '#FAFAFA', fontSize: '16px', fontWeight: 500 }}>Waiting for events</h3>
+                <p style={{ margin: 0, color: '#A1A1AA', fontSize: '13px', lineHeight: 1.5 }}>Your endpoint is live. Point your third-party service to the URL above.</p>
+              </div>
+            ) : events.map(ev => {
+              const badge = getForwardBadge(ev)
+              const isReplaying = replayingId === ev.id
+              return (
+                <div key={ev.id} className="event-card" style={{
+                  background: '#121214', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '10px', padding: '16px', marginBottom: '16px',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+                }}>
+                  {/* Header row with Actions merged */}
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px', gap: '10px', flexWrap: 'wrap' }}>
+                    <span className="code-font" style={{
+                      background: ev.method === 'REPLAY' ? 'rgba(192, 132, 252, 0.1)' : 'rgba(47, 47, 228, 0.1)',
+                      color: ev.method === 'REPLAY' ? '#C084FC' : '#818CF8',
+                      border: ev.method === 'REPLAY' ? '1px solid rgba(192, 132, 252, 0.2)' : '1px solid rgba(47, 47, 228, 0.2)',
+                      padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                    }}>
+                      {ev.method}
+                    </span>
+                    <span className="code-font" style={{ color: '#71717A', fontSize: '12px' }}>
+                      /hooks/{ev.session_id}
+                    </span>
+
+                    {/* Forward status badge */}
+                    {badge && (
+                      <span style={{
+                        background: badge.bg, color: badge.text, border: `1px solid ${badge.border}`,
+                        padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 500,
+                        display: 'flex', alignItems: 'center', gap: '4px'
+                      }}>
+                        <span style={{ opacity: 0.7 }}>→</span> {badge.label}
+                      </span>
+                    )}
+
+                    <span style={{ color: '#71717A', fontSize: '11px', fontWeight: 500, marginRight: 'auto', marginLeft: '4px' }}>
+                      {new Date(ev.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    
+                    {/* Actions moved to top */}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => downloadEvent(ev)} style={{...btnStyle(false), padding: '4px 10px', fontSize: '11px', background: 'transparent'}}>Download</button>
+                      <button onClick={() => replayEvent(ev)} style={{...btnStyle(isReplaying), padding: '4px 10px', fontSize: '11px'}}>
+                        {isReplaying ? 'Replayed ✓' : 'Replay Event'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Body Payload (Constrained Height) */}
+                  <div style={{ 
+                    background: '#09090B', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '6px',
+                    overflow: 'hidden', marginBottom: ev.forward_response ? '12px' : '0',
+                    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)'
+                  }}>
+                    <div style={{ maxHeight: '250px', overflowY: 'auto', padding: '12px' }}>
+                      <pre className="code-font" style={{ color: '#E4E4E7', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+                        {ev.body ? parseBody(ev.body) : 'No payload body'}
+                      </pre>
+                    </div>
+                  </div>
+
+                  {/* Forward response (if present) */}
+                  {ev.forward_response && (
+                    <details>
+                      <summary style={{ color: '#A1A1AA', fontSize: '12px', cursor: 'pointer', fontWeight: 500, userSelect: 'none', transition: 'color 0.2s', outline: 'none' }}>
+                        Show target response
+                      </summary>
+                      <div style={{ 
+                        marginTop: '8px', background: '#09090B', border: '1px solid rgba(255,255,255,0.05)', 
+                        borderRadius: '6px', padding: '12px', maxHeight: '150px', overflowY: 'auto',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)'
+                      }}>
+                        <pre className="code-font" style={{ color: '#A1A1AA', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+                          {ev.forward_response}
+                        </pre>
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
       </div>
