@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 
+const uiFontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+const codeFontStack = '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace'
+
 function generateSessionId() {
   return Math.random().toString(36).slice(2, 10)
 }
@@ -35,8 +38,11 @@ export default function App() {
   const [replayingId, setReplayingId] = useState(null)
 
   const wsRef = useRef(null)
+  const localOrigin = window.location.origin
+  const controlApiBase = `${localOrigin}/api`
+  const websocketOrigin = new URL(localOrigin)
 
-  const webhookUrl = `${window.location.protocol}//${window.location.host}/api/hooks/${sessionId}`
+  const webhookUrl = `${controlApiBase}/hooks/${sessionId}`
   const tunnelWebhookUrl = tunnelUrl ? `${tunnelUrl}/api/hooks/${sessionId}` : null
 
   // ── Session Management ────────────────────────────────────────────────────
@@ -83,22 +89,22 @@ export default function App() {
   // ── Load history on session change ────────────────────────────────────────
   useEffect(() => {
     setEvents([])
-    fetch(`/api/hooks/${sessionId}`)
+    fetch(`${controlApiBase}/hooks/${sessionId}`)
       .then(r => r.json())
       .then(data => setEvents(data))
       .catch(() => {})
-  }, [sessionId])
+  }, [controlApiBase, sessionId])
 
   // ── Load session config on session change ─────────────────────────────────
   useEffect(() => {
-    fetch(`/api/sessions/${sessionId}/config`)
+    fetch(`${controlApiBase}/sessions/${sessionId}/config`)
       .then(r => r.json())
       .then(data => {
         setForwardUrl(data.forward_url || '')
         setForwardSaved(!!data.forward_url)
       })
       .catch(() => {})
-  }, [sessionId])
+  }, [controlApiBase, sessionId])
 
   // ── WebSocket — closes old, opens new when session changes ────────────────
   useEffect(() => {
@@ -106,8 +112,8 @@ export default function App() {
 
     function connect() {
       if (cancelled) return
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const ws = new WebSocket(`${proto}//${window.location.host}/ws/${sessionId}`)
+      const proto = websocketOrigin.protocol === 'https:' ? 'wss:' : 'ws:'
+      const ws = new WebSocket(`${proto}//${websocketOrigin.host}/ws/${sessionId}`)
       ws.onopen    = () => { if (!cancelled) setConnected(true) }
       ws.onclose   = () => { if (!cancelled) { setConnected(false); setTimeout(connect, 2000) } }
       ws.onerror   = () => ws.close()
@@ -133,12 +139,12 @@ export default function App() {
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [sessionId])
+  }, [sessionId, websocketOrigin.host, websocketOrigin.protocol])
 
   // ── Poll sessions list every 5 s ──────────────────────────────────────────
   useEffect(() => {
     function fetchSessions() {
-      fetch('/api/sessions')
+      fetch(`${controlApiBase}/sessions`)
         .then(r => r.json())
         .then(data => setSessions(data))
         .catch(() => {})
@@ -146,12 +152,12 @@ export default function App() {
     fetchSessions()
     const interval = setInterval(fetchSessions, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [controlApiBase])
 
   // ── Fetch tunnel URL on mount ─────────────────────────────────────────────
   useEffect(() => {
     function fetchTunnel() {
-      fetch('/api/tunnel-url')
+      fetch(`${controlApiBase}/tunnel-url`)
         .then(r => r.json())
         .then(data => setTunnelUrl(data.url || null))
         .catch(() => {})
@@ -159,7 +165,7 @@ export default function App() {
     fetchTunnel()
     const interval = setInterval(fetchTunnel, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [controlApiBase])
 
   // ── Actions ───────────────────────────────────────────────────────────────
   function copyLocal() {
@@ -178,7 +184,7 @@ export default function App() {
   }
 
   async function saveForwardUrl() {
-    await fetch(`/api/sessions/${sessionId}/config`, {
+    await fetch(`${controlApiBase}/sessions/${sessionId}/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ forward_url: forwardUrl || null }),
@@ -192,7 +198,7 @@ export default function App() {
   }
 
   async function sendTestWebhook() {
-    await fetch(`/api/hooks/${sessionId}`, {
+    await fetch(`${controlApiBase}/hooks/${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -206,7 +212,7 @@ export default function App() {
   }
 
   async function clearSession() {
-    await fetch(`/api/hooks/${sessionId}`, { method: 'DELETE' })
+    await fetch(`${controlApiBase}/hooks/${sessionId}`, { method: 'DELETE' })
     setEvents([])
   }
 
@@ -220,7 +226,7 @@ export default function App() {
     })
     
     // Call backend
-    await fetch(`/api/sessions/${idToDelete}`, { method: 'DELETE' }).catch(() => {})
+    await fetch(`${controlApiBase}/sessions/${idToDelete}`, { method: 'DELETE' }).catch(() => {})
 
     // If deleting the current session, generate a new one
     if (idToDelete === sessionId) {
@@ -233,7 +239,7 @@ export default function App() {
   async function replayEvent(ev) {
     setReplayingId(ev.id)
     try {
-      await fetch(`/api/hooks/${sessionId}/${ev.id}/replay`, { method: 'POST' })
+      await fetch(`${controlApiBase}/hooks/${sessionId}/${ev.id}/replay`, { method: 'POST' })
     } catch {}
     setTimeout(() => setReplayingId(null), 1000)
   }
@@ -345,7 +351,7 @@ export default function App() {
     borderRadius: '6px', 
     cursor: 'pointer',
     fontSize: '12px', 
-    fontFamily: '"Geist", system-ui, sans-serif',
+    fontFamily: uiFontStack,
     fontWeight: 500,
     whiteSpace: 'nowrap',
     transition: 'all 0.2s ease',
@@ -359,8 +365,6 @@ export default function App() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Fira+Code:wght@400;500&display=swap');
-        
         @keyframes pulse-dot {
           0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(47, 47, 228, 0.4); }
           50%       { opacity: 0.8; transform: scale(0.95); box-shadow: 0 0 0 6px rgba(47, 47, 228, 0); }
@@ -370,7 +374,7 @@ export default function App() {
           margin: 0; 
           background: #09090B; 
           color: #FAFAFA;
-          font-family: 'Geist', system-ui, sans-serif;
+          font-family: ${uiFontStack};
           -webkit-font-smoothing: antialiased;
         }
         
@@ -384,7 +388,7 @@ export default function App() {
         button:hover { filter: brightness(1.15); transform: translateY(-1px); }
         button:active { transform: scale(0.98); }
         
-        .code-font { font-family: 'Fira Code', monospace; }
+        .code-font { font-family: ${codeFontStack}; }
         
         .event-card { transition: all 0.2s ease; }
         .event-card:hover {
@@ -483,28 +487,28 @@ export default function App() {
             {/* Row 2: Compact URLs & Forwarding */}
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden' }}>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>LOCAL</span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>LOCAL ONLY</span>
                 <span className="code-font" style={{ flex: 1, fontSize: '12px', color: '#D4D4D8', padding: '6px 10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{webhookUrl}</span>
                 <button onClick={copyLocal} style={{ background: 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: copiedLocal ? '#818CF8' : '#A1A1AA', fontSize: '11px', padding: '6px 12px', cursor: 'pointer' }}>
                   {copiedLocal ? 'Copied' : 'Copy'}
                 </button>
               </div>
 
-              {tunnelUrl && (
-                <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>PUBLIC</span>
-                  <span className="code-font" style={{ flex: 1, fontSize: '12px', color: '#D4D4D8', padding: '6px 10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tunnelWebhookUrl}</span>
-                  <button onClick={copyTunnel} style={{ background: 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: copiedTunnel ? '#818CF8' : '#A1A1AA', fontSize: '11px', padding: '6px 12px', cursor: 'pointer' }}>
-                    {copiedTunnel ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-              )}
+              <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden' }}>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>PUBLIC INGEST</span>
+                <span className="code-font" style={{ flex: 1, fontSize: '12px', color: tunnelUrl ? '#D4D4D8' : '#71717A', padding: '6px 10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {tunnelWebhookUrl || 'Unavailable until the tunnel reports a public webhook URL.'}
+                </span>
+                <button onClick={copyTunnel} disabled={!tunnelWebhookUrl} style={{ background: 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: tunnelWebhookUrl ? (copiedTunnel ? '#818CF8' : '#A1A1AA') : '#52525B', fontSize: '11px', padding: '6px 12px', cursor: tunnelWebhookUrl ? 'pointer' : 'not-allowed' }}>
+                  {copiedTunnel ? 'Copied' : 'Copy'}
+                </button>
+              </div>
 
               <div className="fwd-row" style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', background: '#09090B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', transition: 'border-color 0.2s ease' }}>
                 <span style={{ fontSize: '10px', fontWeight: 600, color: '#71717A', padding: '0 10px', background: 'rgba(255,255,255,0.02)', height: '100%', display: 'flex', alignItems: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>FWD</span>
                 <input 
                   type="text" value={forwardUrl} onChange={e => { setForwardUrl(e.target.value); setForwardSaved(false) }} onKeyDown={handleForwardKeyDown}
-                  className="code-font" placeholder="http://localhost:3000/api..."
+                  className="code-font" placeholder="http://host.docker.internal:3000/api..."
                   style={{ flex: 1, background: 'transparent', border: 'none', color: '#FAFAFA', fontSize: '12px', padding: '6px 10px', outline: 'none' }}
                 />
                 <button onClick={saveForwardUrl} style={{ background: forwardSaved ? '#10B981' : 'transparent', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.05)', color: forwardSaved ? '#000' : '#A1A1AA', fontSize: '11px', padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
@@ -716,7 +720,7 @@ export default function App() {
                 style={{
                   width: '100%', background: 'transparent', border: 'none',
                   color: '#FAFAFA', fontSize: '24px', padding: '24px 20px', outline: 'none',
-                  fontFamily: '"Geist", system-ui, sans-serif', fontWeight: 500
+                  fontFamily: uiFontStack, fontWeight: 500
                 }}
               />
               <div style={{ padding: '0 24px 0 0', color: '#52525B', fontSize: '11px', fontWeight: 600 }}>ESC TO CANCEL</div>

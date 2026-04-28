@@ -1,7 +1,7 @@
 <div align="center">
   <img src="img/hookrelay-logo.png" alt="HookRelay Logo" width="120" />
   <h1>HookRelay</h1>
-  <p>Catch webhooks. Inspect them. Forward to your local app. Replay on demand.<br><strong>All data stays on your machine.</strong></p>
+  <p>Catch webhooks. Inspect them. Forward to your local app. Replay on demand.<br><strong>Webhook data is stored locally. In Cloudflare tunnel mode, payloads transit Cloudflare before reaching your machine.</strong></p>
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
   [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
@@ -9,9 +9,9 @@
   [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)](docker-compose.yml)
 </div>
 
-HookRelay is a self-hosted webhook proxy. It catches webhooks from services like Stripe or GitHub, shows them in a real-time dashboard, and forwards them to your local dev server. 
+HookRelay is a self-hosted webhook proxy. It catches webhooks from services like Stripe or GitHub, shows them in a real-time dashboard on `localhost`, and forwards them to your local dev server. 
 
-I built this because alternatives like Webhook.site or RequestBin store your payloads on their servers. That's a dealbreaker when you're working with real payment data, health records, or strict client NDAs. HookRelay runs entirely locally in Docker, so your data never leaves your machine.
+I built this because alternatives like Webhook.site or RequestBin store your payloads on their servers. That's a dealbreaker when you're working with real payment data, health records, or strict client NDAs. HookRelay stores webhook data locally in Docker. If you use the bundled Cloudflare tunnel, the payload still transits Cloudflare on the way to your machine, but the dashboard and control plane stay local-only.
 
 ---
 
@@ -41,6 +41,7 @@ Razorpay → https://hooks.yourdomain.com/api/hooks/razorpay
 
 - **Automatic public URLs:** It spins up a Cloudflare quick tunnel automatically on boot. No account required.
 - **Permanent URLs:** If you have a Cloudflare account and a cheap domain, you can set a permanent webhook URL that survives restarts.
+- **Local-only dashboard:** The dashboard, replay tools, session config, and event history stay on `localhost`.
 - **Instant dashboard:** A React frontend connected via WebSockets shows webhooks the second they arrive.
 - **Auto-forwarding:** Tell it where your local app is running (e.g., `host.docker.internal:3000`), and it forwards payloads automatically.
 - **Replay events:** Resend any webhook with one click. Good for debugging your handlers without triggering new test payments.
@@ -56,14 +57,14 @@ Here's how a webhook travels from the internet to your local code:
 
 **The flow:**
 1. An external service hits your public tunnel URL with a POST request.
-2. The `cloudflared` container passes it to Nginx.
-3. Nginx routes `/api/*` requests to FastAPI.
+2. The `cloudflared` container sends that request to a dedicated public ingress proxy.
+3. The public ingress proxy allows only `POST /api/hooks/{session}` and forwards it to FastAPI.
 4. FastAPI saves the event to PostgreSQL and publishes it to Redis.
-5. FastAPI pushes the event to your browser via WebSocket so the dashboard updates instantly.
+5. Your local-only dashboard on `localhost` reads the event history and receives live updates over WebSocket.
 6. FastAPI forwards the original payload to your local app via `host.docker.internal`.
 7. Your app's response (like a 200 OK) is recorded back in the database.
 
-And here is how the six Docker containers communicate internally:
+And here is how the seven Docker containers communicate internally:
 
 ![HookRelay Internal Container Flow](img/hookrelay-inside-docker.png)
 
@@ -90,12 +91,12 @@ docker compose up --build
 ```
 
 2. Wait for the containers to start. The terminal will print out a temporary Cloudflare URL.
-3. Open `http://localhost` in your browser to view the dashboard.
+3. Open `http://localhost` in your browser to view the dashboard. The dashboard and control APIs are intentionally local-only.
 
 ### How to use it
 
 1. **Create a session:** Type a name like `stripe` in the sidebar and press Enter.
-2. **Copy your URL:** Grab the public URL from the blue banner at the top of the dashboard. Paste this into the Stripe/Razorpay developer settings.
+2. **Copy your URL:** Grab the `PUBLIC INGEST` URL from the blue banner at the top of the dashboard. Paste this into the Stripe/Razorpay developer settings.
 3. **Set your forward destination:** In the dashboard's "FWD" input, enter your local app's URL (e.g., `http://host.docker.internal:3000/api/webhooks`). We use `host.docker.internal` instead of `localhost` so the Docker container knows to route the traffic out to your host machine.
 4. **Test it:** Fire a test webhook from your provider. It will show up in the dashboard and hit your local app. 
 
@@ -107,7 +108,7 @@ The default "quick tunnel" gives you a random URL like `https://random-words.try
 
 1. Set up a free Cloudflare account and add a domain name to it.
 2. Go to the Zero Trust Dashboard → Networks → Tunnels → Create a tunnel. Name it `hookrelay` and copy the tunnel token.
-3. Add a public hostname to the tunnel (e.g. `hooks.yourdomain.com`). Point the service to `http://nginx:80`.
+3. Add a public hostname to the tunnel (e.g. `hooks.yourdomain.com`). Point the service to `http://public_ingress:80`.
 4. Copy `.env.example` to `.env` in the project root.
 5. Add your token and hostname to the `.env` file:
 ```env
@@ -122,7 +123,7 @@ The script inside the tunnel container checks for that `.env` file. If it finds 
 
 ## API Reference
 
-You can interact with HookRelay programmatically. All endpoints are under `/api/`.
+You can interact with HookRelay programmatically. Public internet access is limited to webhook ingest. Dashboard and control endpoints are local-only under `http://localhost/api/`.
 
 ```bash
 # Receive a webhook manually
@@ -130,12 +131,12 @@ curl -X POST https://your-tunnel.trycloudflare.com/api/hooks/stripe \
   -H "Content-Type: application/json" \
   -d '{"event": "payment.captured", "amount": 5000}'
 
-# Set a forwarding URL via API
+# Set a forwarding URL locally
 curl -X PUT http://localhost/api/sessions/stripe/config \
   -H "Content-Type: application/json" \
   -d '{"forward_url": "http://host.docker.internal:3000/webhooks"}'
 
-# Replay an existing event
+# Replay an existing event locally
 curl -X POST http://localhost/api/hooks/stripe/42/replay
 ```
 
@@ -143,9 +144,9 @@ curl -X POST http://localhost/api/hooks/stripe/42/replay
 
 ## Data Privacy
 
-All your data stays on your machine. Webhook payloads and session configurations are saved to the local PostgreSQL volume. The dashboard state lives in your browser memory. 
+Webhook payloads and session configurations are saved to the local PostgreSQL volume. The dashboard state lives in your browser memory. The dashboard and control plane stay on `localhost`.
 
-The webhook payloads do transit through Cloudflare's network on their way to your machine. Their privacy policy states they do not log request content. If you want to avoid third-party networks entirely, you can replace the Cloudflare container with something like [frp](https://github.com/fatedier/frp) pointing to your own VPS.
+If you use Cloudflare tunnel mode, webhook payloads transit Cloudflare's network on their way to your machine. If you want to avoid third-party networks entirely, you need a different deployment model such as your own public relay or a fully local-only workflow without public webhook delivery.
 
 ---
 

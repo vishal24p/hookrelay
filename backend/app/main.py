@@ -6,7 +6,7 @@ from datetime import datetime
 
 import httpx
 import redis.asyncio as aioredis
-from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func
@@ -43,6 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+public_ingress_router = APIRouter()
+local_control_router = APIRouter()
+
 
 # ─── Helper: Forward webhook to developer's app ──────────────────────────────
 
@@ -71,7 +74,7 @@ async def forward_webhook(
 # Receives a webhook, saves to PostgreSQL, publishes to Redis,
 # and optionally forwards to the developer's real endpoint.
 
-@app.post("/hooks/{session_id}", status_code=200)
+@public_ingress_router.post("/hooks/{session_id}", status_code=200)
 async def receive_webhook(
     session_id: str,
     request: Request,
@@ -125,7 +128,7 @@ async def receive_webhook(
 # ─── GET /hooks/{session_id} ──────────────────────────────────────────────────
 # Returns full history from PostgreSQL — used when the dashboard first loads.
 
-@app.get("/hooks/{session_id}", response_model=List[WebhookEventOut])
+@local_control_router.get("/hooks/{session_id}", response_model=List[WebhookEventOut])
 def get_webhooks(session_id: str, db: Session = Depends(get_db)):
     return (
         db.query(models.WebhookEvent)
@@ -137,7 +140,7 @@ def get_webhooks(session_id: str, db: Session = Depends(get_db)):
 
 # ─── DELETE /hooks/{session_id} ───────────────────────────────────────────────
 
-@app.delete("/hooks/{session_id}", status_code=200)
+@local_control_router.delete("/hooks/{session_id}", status_code=200)
 def clear_webhooks(session_id: str, db: Session = Depends(get_db)):
     deleted = (
         db.query(models.WebhookEvent)
@@ -150,7 +153,7 @@ def clear_webhooks(session_id: str, db: Session = Depends(get_db)):
 
 # ─── DELETE /sessions/{session_id} ────────────────────────────────────────────
 
-@app.delete("/sessions/{session_id}", status_code=200)
+@local_control_router.delete("/sessions/{session_id}", status_code=200)
 def delete_session(session_id: str, db: Session = Depends(get_db)):
     # Delete all events
     db.query(models.WebhookEvent).filter(models.WebhookEvent.session_id == session_id).delete()
@@ -164,7 +167,7 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
 # Re-forwards a stored event to the session's configured forwarding URL.
 # Creates a new event record so it shows up in the dashboard timeline.
 
-@app.post("/hooks/{session_id}/{event_id}/replay", status_code=200)
+@local_control_router.post("/hooks/{session_id}/{event_id}/replay", status_code=200)
 async def replay_event(
     session_id: str,
     event_id: int,
@@ -233,7 +236,7 @@ async def replay_event(
 #   4. Whichever task finishes first (usually disconnect), we cancel the other
 #   5. Clean up the Redis subscription
 
-@app.websocket("/ws/{session_id}")
+@local_control_router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
 
@@ -275,7 +278,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 # Returns all distinct session IDs ordered by most recent activity.
 # Fetches from both WebhookEvents and SessionConfigs to ensure empty sessions with saved configs are not lost.
 
-@app.get("/sessions")
+@local_control_router.get("/sessions")
 def get_sessions(db: Session = Depends(get_db)):
     events = (
         db.query(models.WebhookEvent.session_id, func.max(models.WebhookEvent.received_at).label("last_active"))
@@ -304,7 +307,7 @@ def get_sessions(db: Session = Depends(get_db)):
 # ─── PUT /sessions/{session_id}/config ────────────────────────────────────────
 # Save or update the forwarding URL for a session.
 
-@app.put("/sessions/{session_id}/config", response_model=SessionConfigOut)
+@local_control_router.put("/sessions/{session_id}/config", response_model=SessionConfigOut)
 def update_session_config(
     session_id: str,
     config_in: SessionConfigIn,
@@ -328,7 +331,7 @@ def update_session_config(
 # ─── GET /sessions/{session_id}/config ────────────────────────────────────────
 # Get the forwarding URL for a session.
 
-@app.get("/sessions/{session_id}/config", response_model=SessionConfigOut)
+@local_control_router.get("/sessions/{session_id}/config", response_model=SessionConfigOut)
 def get_session_config(session_id: str, db: Session = Depends(get_db)):
     config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
     if not config:
@@ -340,7 +343,7 @@ def get_session_config(session_id: str, db: Session = Depends(get_db)):
 # Returns the current Cloudflare tunnel URL if available.
 # The tunnel container writes its URL to /shared/tunnel-url.txt.
 
-@app.get("/tunnel-url")
+@local_control_router.get("/tunnel-url")
 def get_tunnel_url():
     try:
         with open("/shared/tunnel_url.txt", "r") as f:
@@ -352,6 +355,10 @@ def get_tunnel_url():
 
 # ─── GET /health ──────────────────────────────────────────────────────────────
 
-@app.get("/health")
+@local_control_router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+app.include_router(public_ingress_router)
+app.include_router(local_control_router)

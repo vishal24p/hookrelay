@@ -16,7 +16,7 @@ else
   # ── QUICK TUNNEL MODE (temporary URL, zero config) ─────────────────────────
   echo "==> Quick tunnel mode: temporary URL (set CLOUDFLARE_TUNNEL_TOKEN for permanent URL)"
 
-  cloudflared tunnel --no-autoupdate --url http://nginx:80 2>&1 | tee /tmp/tunnel.log &
+  cloudflared tunnel --no-autoupdate --url http://public_ingress:80 2>&1 | tee /tmp/tunnel.log &
   TUNNEL_PID=$!
 
   # Wait for the URL to appear in logs

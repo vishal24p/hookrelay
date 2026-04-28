@@ -2,8 +2,6 @@ services:
 
   api:
     build: ./backend
-    ports:
-      - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://webhookuser:webhookpass@postgres:5432/webhookdb
       - REDIS_URL=redis://redis:6379
@@ -17,16 +15,30 @@ services:
     volumes:
       - ./backend:/app
       - tunnel_data:/shared:ro
+    networks:
+      - public_net
+      - local_net
 
-  nginx:
+  local_ingress:
     image: nginx:alpine
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - api
       - frontend
+    networks:
+      - local_net
+
+  public_ingress:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/public.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    networks:
+      - public_net
 
   postgres:
     image: postgres:15-alpine
@@ -34,8 +46,6 @@ services:
       POSTGRES_USER: webhookuser
       POSTGRES_PASSWORD: webhookpass
       POSTGRES_DB: webhookdb
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -43,16 +53,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - local_net
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - local_net
 
   frontend:
     build: ./frontend
@@ -61,6 +73,8 @@ services:
       - /app/node_modules
     depends_on:
       - api
+    networks:
+      - local_net
 
   tunnel:
     build: ./tunnel
@@ -70,9 +84,15 @@ services:
       - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
       - TUNNEL_HOSTNAME=${TUNNEL_HOSTNAME:-}
     depends_on:
-      - nginx
+      - public_ingress
     restart: unless-stopped
+    networks:
+      - public_net
 
 volumes:
   postgres_data:
   tunnel_data:
+
+networks:
+  public_net:
+  local_net:
