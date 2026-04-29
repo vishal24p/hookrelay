@@ -2,7 +2,9 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from contextlib import suppress
 from datetime import datetime
+from typing import Any, List
 
 import httpx
 import redis.asyncio as aioredis
@@ -11,15 +13,272 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from typing import List
 
 from . import models
 from .database import engine, get_db, Base
-from .schemas import WebhookEventOut, SessionConfigIn, SessionConfigOut
+from .schemas import GitHubWebhookStatusOut, WebhookEventOut, SessionConfigIn, SessionConfigOut
 
 Base.metadata.create_all(bind=engine)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
+TUNNEL_URL_FILE = "/shared/tunnel_url.txt"
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "content-length",
+    "host",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
+GITHUB_API_BASE = "https://api.github.com"
+GITHUB_API_VERSION = "2022-11-28"
+
+
+def parse_bool_env(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_csv_env(value: str | None, default: list[str]) -> list[str]:
+    if not value:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def read_tunnel_url_file() -> str | None:
+    try:
+        with open(TUNNEL_URL_FILE, "r") as file:
+            url = file.read().strip()
+        return url or None
+    except FileNotFoundError:
+        return None
+
+
+def load_github_webhook_config() -> dict[str, Any]:
+    token = os.getenv("GITHUB_WEBHOOK_TOKEN")
+    owner = os.getenv("GITHUB_WEBHOOK_OWNER")
+    repo = os.getenv("GITHUB_WEBHOOK_REPO")
+    secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+    session_id = os.getenv("GITHUB_WEBHOOK_SESSION_ID", "github").strip() or "github"
+    events = parse_csv_env(os.getenv("GITHUB_WEBHOOK_EVENTS"), ["push", "ping"])
+    autoconfig = parse_bool_env(os.getenv("GITHUB_WEBHOOK_AUTOCONFIG"), True)
+    try:
+        poll_interval = max(5, int(os.getenv("GITHUB_WEBHOOK_POLL_INTERVAL_SECONDS", "10")))
+    except ValueError:
+        poll_interval = 10
+
+    configured = all([token, owner, repo, secret])
+    enabled = configured and autoconfig
+
+    return {
+        "token": token,
+        "owner": owner,
+        "repo": repo,
+        "secret": secret,
+        "session_id": session_id,
+        "events": events,
+        "autoconfig": autoconfig,
+        "configured": configured,
+        "enabled": enabled,
+        "poll_interval": poll_interval,
+    }
+
+
+def build_github_status_state(config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "configured": config["configured"],
+        "enabled": config["enabled"],
+        "owner": config["owner"],
+        "repo": config["repo"],
+        "session_id": config["session_id"],
+        "events": config["events"],
+        "current_tunnel_url": None,
+        "desired_webhook_url": None,
+        "managed_hook_id": None,
+        "last_sync_status": "idle" if config["enabled"] else "disabled",
+        "last_sync_error": None,
+        "last_synced_at": None,
+        "last_successful_url": None,
+    }
+
+
+def github_request_headers(token: str) -> dict[str, str]:
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+    }
+
+
+def github_hook_matches_path(hook: dict[str, Any], session_id: str) -> bool:
+    config = hook.get("config") or {}
+    url = config.get("url")
+    if not isinstance(url, str):
+        return False
+    return url.rstrip("/").endswith(f"/api/hooks/{session_id}")
+
+
+def github_hook_matches_events(hook: dict[str, Any], expected_events: list[str]) -> bool:
+    hook_events = hook.get("events")
+    if not isinstance(hook_events, list):
+        return False
+    return set(hook_events) == set(expected_events)
+
+
+def select_managed_hook(candidates: list[dict[str, Any]], expected_events: list[str]) -> dict[str, Any] | None:
+    exact_matches = [hook for hook in candidates if github_hook_matches_events(hook, expected_events)]
+    pool = exact_matches or candidates
+    if not pool:
+        return None
+
+    return max(pool, key=lambda hook: hook.get("updated_at") or hook.get("created_at") or "")
+
+
+async def list_github_repo_webhooks(config: dict[str, Any]) -> list[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{config['owner']}/{config['repo']}/hooks",
+            headers=github_request_headers(config["token"]),
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def create_github_repo_webhook(config: dict[str, Any], webhook_url: str) -> dict[str, Any]:
+    payload = {
+        "name": "web",
+        "active": True,
+        "events": config["events"],
+        "config": {
+            "url": webhook_url,
+            "content_type": "json",
+            "secret": config["secret"],
+            "insecure_ssl": "0",
+        },
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{GITHUB_API_BASE}/repos/{config['owner']}/{config['repo']}/hooks",
+            headers=github_request_headers(config["token"]),
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def update_github_repo_webhook(config: dict[str, Any], hook_id: int, webhook_url: str) -> dict[str, Any]:
+    payload = {
+        "active": True,
+        "events": config["events"],
+        "config": {
+            "url": webhook_url,
+            "content_type": "json",
+            "secret": config["secret"],
+            "insecure_ssl": "0",
+        },
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.patch(
+            f"{GITHUB_API_BASE}/repos/{config['owner']}/{config['repo']}/hooks/{hook_id}",
+            headers=github_request_headers(config["token"]),
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def reconcile_github_webhook(app: FastAPI, force: bool = False) -> dict[str, Any]:
+    config = app.state.github_webhook_config
+    status = app.state.github_webhook_status
+
+    tunnel_url = read_tunnel_url_file()
+    desired_url = (
+        f"{tunnel_url.rstrip('/')}/api/hooks/{config['session_id']}"
+        if tunnel_url
+        else None
+    )
+
+    status["current_tunnel_url"] = tunnel_url
+    status["desired_webhook_url"] = desired_url
+
+    if not config["configured"]:
+        status["last_sync_status"] = "disabled"
+        status["last_sync_error"] = "GitHub webhook automation is not configured."
+        return status
+
+    if not config["enabled"]:
+        status["last_sync_status"] = "disabled"
+        status["last_sync_error"] = "GitHub webhook automation is disabled."
+        return status
+
+    if not desired_url:
+        status["last_sync_status"] = "idle"
+        status["last_sync_error"] = None
+        return status
+
+    if not force and status.get("last_successful_url") == desired_url:
+        status["last_sync_status"] = "success"
+        status["last_sync_error"] = None
+        return status
+
+    async with app.state.github_webhook_lock:
+        if not force and status.get("last_successful_url") == desired_url:
+            status["last_sync_status"] = "success"
+            status["last_sync_error"] = None
+            return status
+
+        try:
+            hooks = await list_github_repo_webhooks(config)
+            candidates = [
+                hook for hook in hooks
+                if github_hook_matches_path(hook, config["session_id"])
+            ]
+            managed_hook = select_managed_hook(candidates, config["events"])
+
+            if managed_hook and len(candidates) > 1:
+                print(
+                    f"[github-webhook-sync] multiple candidate hooks found for "
+                    f"{config['owner']}/{config['repo']} session {config['session_id']}; "
+                    f"updating hook {managed_hook.get('id')}"
+                )
+
+            if managed_hook:
+                hook_payload = await update_github_repo_webhook(
+                    config,
+                    managed_hook["id"],
+                    desired_url,
+                )
+            else:
+                hook_payload = await create_github_repo_webhook(config, desired_url)
+
+            status["managed_hook_id"] = hook_payload.get("id")
+            status["last_sync_status"] = "success"
+            status["last_sync_error"] = None
+            status["last_synced_at"] = datetime.utcnow()
+            status["last_successful_url"] = desired_url
+            return status
+        except httpx.HTTPStatusError as error:
+            message = f"GitHub API {error.response.status_code}: {error.response.text[:500]}"
+            status["last_sync_status"] = "error"
+            status["last_sync_error"] = message
+            status["last_synced_at"] = datetime.utcnow()
+            return status
+        except Exception as error:
+            status["last_sync_status"] = "error"
+            status["last_sync_error"] = str(error)[:500]
+            status["last_synced_at"] = datetime.utcnow()
+            return status
+
+
+async def github_webhook_reconciler(app: FastAPI):
+    while True:
+        await reconcile_github_webhook(app)
+        await asyncio.sleep(app.state.github_webhook_config["poll_interval"])
 
 
 # ─── App Lifespan ─────────────────────────────────────────────────────────────
@@ -30,7 +289,19 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+    app.state.github_webhook_config = load_github_webhook_config()
+    app.state.github_webhook_status = build_github_status_state(app.state.github_webhook_config)
+    app.state.github_webhook_lock = asyncio.Lock()
+    github_sync_task = None
+
+    if app.state.github_webhook_config["enabled"]:
+        github_sync_task = asyncio.create_task(github_webhook_reconciler(app))
+
     yield
+    if github_sync_task:
+        github_sync_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await github_sync_task
     await app.state.redis.aclose()
 
 
@@ -52,18 +323,27 @@ local_control_router = APIRouter()
 async def forward_webhook(
     forward_url: str,
     body: bytes | None,
-    content_type: str,
+    headers: dict | None = None,
+    query_params: dict | None = None,
 ) -> tuple[int | None, str | None, str | None]:
     """
     POST the raw webhook body to the developer's real endpoint.
     Returns (status_code, response_body, error_message).
     """
+    forward_headers = {}
+    if headers:
+        for key, value in headers.items():
+            if key.lower() in HOP_BY_HOP_HEADERS:
+                continue
+            forward_headers[key] = value
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 forward_url,
                 content=body or b"",
-                headers={"Content-Type": content_type},
+                headers=forward_headers,
+                params=query_params or None,
             )
         return resp.status_code, resp.text[:2000], None
     except Exception as e:
@@ -82,13 +362,15 @@ async def receive_webhook(
 ):
     raw_body = await request.body()
     body_text = raw_body.decode("utf-8") if raw_body else None
+    request_headers = dict(request.headers)
+    request_query_params = dict(request.query_params)
 
     event = models.WebhookEvent(
         session_id=session_id,
         method=request.method,
-        headers=dict(request.headers),
+        headers=request_headers,
         body=body_text,
-        query_params=dict(request.query_params),
+        query_params=request_query_params,
     )
     db.add(event)
     db.commit()
@@ -104,9 +386,11 @@ async def receive_webhook(
     # Check if this session has a forwarding URL configured
     config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
     if config and config.forward_url:
-        content_type = request.headers.get("content-type", "application/json")
         status, response, error = await forward_webhook(
-            config.forward_url, raw_body, content_type
+            config.forward_url,
+            raw_body,
+            headers=request_headers,
+            query_params=request_query_params,
         )
         event.forward_status = status
         event.forward_response = response
@@ -190,12 +474,11 @@ async def replay_event(
 
     # Forward the original payload
     raw_body = original.body.encode("utf-8") if original.body else b""
-    content_type = "application/json"
-    if original.headers and isinstance(original.headers, dict):
-        content_type = original.headers.get("content-type", "application/json")
-
     status, response, error = await forward_webhook(
-        config.forward_url, raw_body, content_type
+        config.forward_url,
+        raw_body,
+        headers=original.headers if isinstance(original.headers, dict) else None,
+        query_params=original.query_params if isinstance(original.query_params, dict) else None,
     )
 
     # Create a new event record for the replay
@@ -339,18 +622,35 @@ def get_session_config(session_id: str, db: Session = Depends(get_db)):
     return config
 
 
+@local_control_router.get("/integrations/github/status", response_model=GitHubWebhookStatusOut)
+def get_github_integration_status(request: Request):
+    status = dict(request.app.state.github_webhook_status)
+    tunnel_url = read_tunnel_url_file()
+    status["current_tunnel_url"] = tunnel_url
+    status["desired_webhook_url"] = (
+        f"{tunnel_url.rstrip('/')}/api/hooks/{status['session_id']}"
+        if tunnel_url
+        else None
+    )
+    status.pop("last_successful_url", None)
+    return status
+
+
+@local_control_router.post("/integrations/github/reconcile", response_model=GitHubWebhookStatusOut)
+async def trigger_github_reconcile(request: Request):
+    status = await reconcile_github_webhook(request.app, force=True)
+    response = dict(status)
+    response.pop("last_successful_url", None)
+    return response
+
+
 # ─── GET /tunnel-url ──────────────────────────────────────────────────────────
 # Returns the current Cloudflare tunnel URL if available.
 # The tunnel container writes its URL to /shared/tunnel-url.txt.
 
 @local_control_router.get("/tunnel-url")
 def get_tunnel_url():
-    try:
-        with open("/shared/tunnel_url.txt", "r") as f:
-            url = f.read().strip()
-        return {"url": url or None}
-    except FileNotFoundError:
-        return {"url": None}
+    return {"url": read_tunnel_url_file()}
 
 
 # ─── GET /health ──────────────────────────────────────────────────────────────

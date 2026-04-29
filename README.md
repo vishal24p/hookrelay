@@ -41,6 +41,7 @@ Razorpay → https://hooks.yourdomain.com/api/hooks/razorpay
 
 - **Automatic public URLs:** It spins up a Cloudflare quick tunnel automatically on boot. No account required.
 - **Permanent URLs:** If you have a Cloudflare account and a cheap domain, you can set a permanent webhook URL that survives restarts.
+- **GitHub quick-tunnel auto-repair:** If you stay on the free quick tunnel, HookRelay can automatically repair one GitHub repository webhook URL whenever the tunnel changes.
 - **Local-only dashboard:** The dashboard, replay tools, session config, and event history stay on `localhost`.
 - **Instant dashboard:** A React frontend connected via WebSockets shows webhooks the second they arrive.
 - **Auto-forwarding:** Tell it where your local app is running (e.g., `host.docker.internal:3000`), and it forwards payloads automatically.
@@ -95,10 +96,28 @@ docker compose up --build
 
 ### How to use it
 
-1. **Create a session:** Type a name like `stripe` in the sidebar and press Enter.
-2. **Copy your URL:** Grab the `PUBLIC INGEST` URL from the blue banner at the top of the dashboard. Paste this into the Stripe/Razorpay developer settings.
-3. **Set your forward destination:** In the dashboard's "FWD" input, enter your local app's URL (e.g., `http://host.docker.internal:3000/api/webhooks`). We use `host.docker.internal` instead of `localhost` so the Docker container knows to route the traffic out to your host machine.
-4. **Test it:** Fire a test webhook from your provider. It will show up in the dashboard and hit your local app. 
+1. **Create an endpoint:** Click `New Endpoint`, name it something like `stripe` or `github`, and optionally keep the generated ID.
+2. **Copy your public URL:** Use the `Public URL` block at the top of the dashboard. This is the URL you give the third-party sender.
+3. **Set your forward destination:** Use `Forward Target` to point at your local app, for example `http://host.docker.internal:3000/api/webhooks`. We use `host.docker.internal` instead of `localhost` so the container can reach your host machine.
+4. **Test it:** Trigger a test event or fire a real webhook from the provider. It will show up in the dashboard and hit your local app.
+
+### Real GitHub test flow
+
+Do **not** use GitHub OAuth login as a HookRelay test. OAuth redirects are unrelated to webhook delivery.
+
+Use a real repository webhook instead:
+
+1. Run HookRelay.
+2. Run your local receiver app on port `3000`.
+3. In HookRelay, create the endpoint `github`.
+4. Set the forward target to `http://host.docker.internal:3000/api/webhooks/github`.
+5. In GitHub repository settings, add a webhook with:
+   - Payload URL: `https://<your-hookrelay-public-url>/api/hooks/github`
+   - Content type: `application/json`
+   - Secret: the same secret your local app uses to verify GitHub signatures
+   - Events: start with `ping` and `push`
+6. Use GitHub's test delivery or push a commit.
+7. Verify the event appears in HookRelay and the forwarded request returns `200`.
 
 ---
 
@@ -119,6 +138,33 @@ TUNNEL_HOSTNAME=hooks.yourdomain.com
 
 The script inside the tunnel container checks for that `.env` file. If it finds the token, it boots the permanent tunnel. If not, it falls back to the random quick tunnel.
 
+### Quick-tunnel GitHub auto-repair
+
+If you do **not** want to buy a domain and you are using GitHub repository webhooks, HookRelay can repair the GitHub webhook URL automatically after a restart.
+
+Add these values to `.env`:
+
+```env
+GITHUB_WEBHOOK_TOKEN=your_fine_grained_token
+GITHUB_WEBHOOK_OWNER=your_github_owner
+GITHUB_WEBHOOK_REPO=your_repository_name
+GITHUB_WEBHOOK_SECRET=the_same_secret_used_by_your_local_receiver
+GITHUB_WEBHOOK_SESSION_ID=github
+GITHUB_WEBHOOK_EVENTS=push,ping
+GITHUB_WEBHOOK_AUTOCONFIG=true
+GITHUB_WEBHOOK_POLL_INTERVAL_SECONDS=10
+```
+
+What this does:
+- HookRelay watches the current quick-tunnel URL.
+- When the URL changes, it creates or updates one managed GitHub repository webhook.
+- The managed webhook is pointed at `https://<current-tunnel>/api/hooks/<session>`.
+
+What this does **not** do:
+- It does not make the free quick tunnel stable.
+- It does not prevent temporary downtime while Cloudflare is reconnecting.
+- It does not update Stripe, Razorpay, or other providers in this v1 path.
+
 ---
 
 ## API Reference
@@ -130,6 +176,12 @@ You can interact with HookRelay programmatically. Public internet access is limi
 curl -X POST https://your-tunnel.trycloudflare.com/api/hooks/stripe \
   -H "Content-Type: application/json" \
   -d '{"event": "payment.captured", "amount": 5000}'
+
+# Check GitHub quick-tunnel auto-repair status locally
+curl http://localhost/api/integrations/github/status
+
+# Force a GitHub webhook reconciliation locally
+curl -X POST http://localhost/api/integrations/github/reconcile
 
 # Set a forwarding URL locally
 curl -X PUT http://localhost/api/sessions/stripe/config \
@@ -157,6 +209,9 @@ Your local app probably isn't running, or it's on a different port. Also make su
 
 **"I can't see the tunnel URL in the dashboard"**
 The Cloudflare container sometimes takes 15-30 seconds to fetch the URL on a cold boot. Wait a moment and refresh.
+
+**"My GitHub webhook still points at the old quick-tunnel URL"**
+Quick tunnels are unstable by design. If GitHub auto-repair is configured, check `GET /api/integrations/github/status` locally and look at `last_sync_status` plus `last_sync_error`. If auto-repair is not configured, the URL will stay stale until you update it yourself or switch to a named tunnel.
 
 **"Port 80 is already in use"**
 If you have IIS, Apache, or another Docker project using port 80, the Nginx container will fail to start. Edit `docker-compose.yml` and change the Nginx port mapping from `80:80` to `8080:80`. Then view the dashboard at `http://localhost:8080`.

@@ -30,3 +30,18 @@ class SessionConfigOut(BaseModel):
     forward_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class GitHubWebhookStatusOut(BaseModel):
+    configured: bool
+    enabled: bool
+    owner: Optional[str] = None
+    repo: Optional[str] = None
+    session_id: str
+    events: list[str]
+    current_tunnel_url: Optional[str] = None
+    desired_webhook_url: Optional[str] = None
+    managed_hook_id: Optional[int] = None
+    last_sync_status: str
+    last_sync_error: Optional[str] = None
+    last_synced_at: Optional[datetime] = None
