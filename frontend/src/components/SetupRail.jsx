@@ -26,38 +26,41 @@ export function SetupRail({
 
   return (
     <div className="setup-wrap">
-      <div className="row-between" style={{ marginBottom: 18 }}>
+      <div className="setup-hero">
         <div>
           <div className="eyebrow">Endpoint workflow</div>
-          <h2 className="title" style={{ marginTop: 8 }}>{endpointName}</h2>
+          <h2 className="title setup-hero-title">{endpointName}</h2>
           <p className="subtle-copy" style={{ marginTop: 8 }}>
-            This screen is now ordered around the real job: expose a public URL, choose a forward target, then inspect what came in.
+            Public ingest first. Forwarding second. Test before touching the provider.
           </p>
         </div>
-        <div className="setup-value" style={{ minWidth: 240, marginTop: 0 }}>
-          <strong>Endpoint ID</strong>
-          <span className="setup-url mono-text">{endpointId}</span>
+
+        <div className="setup-hero-id">
+          <span className="eyebrow">Endpoint ID</span>
+          <span className="mono-text">{endpointId}</span>
         </div>
       </div>
 
-      <div className="setup-grid">
-        <section className="setup-card">
+      <div className="setup-grid compact">
+        <section className="setup-card primary-setup-card">
           <div className="step-badge">1. Public URL</div>
-          <h3 className="setup-title">Give this to Stripe, GitHub, or any sender</h3>
+          <h3 className="setup-title">Give this URL to the sender</h3>
           <p className="subtle-copy">
-            This is the one that matters for real webhook delivery. The local URL is only for your machine.
+            This is the public ingest path. The local URL is only for machine-local testing.
           </p>
 
-          <div className="setup-value">
-            <strong>Public ingest</strong>
-            <span className="setup-url mono-text">
-              {publicWebhookUrl || 'Unavailable until the tunnel reports a public URL.'}
-            </span>
-          </div>
+          <div className="setup-stack">
+            <div className="setup-value focus">
+              <strong>Public ingest</strong>
+              <span className="setup-url mono-text">
+                {publicWebhookUrl || 'Unavailable until the tunnel reports a public URL.'}
+              </span>
+            </div>
 
-          <div className="setup-value" style={{ marginTop: 10 }}>
-            <strong>Local-only URL</strong>
-            <span className="setup-url secondary mono-text">{localWebhookUrl}</span>
+            <div className="setup-value compact">
+              <strong>Local URL</strong>
+              <span className="setup-url secondary mono-text">{localWebhookUrl}</span>
+            </div>
           </div>
 
           <div className="copy-row">
@@ -85,12 +88,12 @@ export function SetupRail({
 
         <section className="setup-card">
           <div className="step-badge">2. Forward To</div>
-          <h3 className="setup-title">Send events into your local app</h3>
+          <h3 className="setup-title">Pipe events into your local app</h3>
           <p className="subtle-copy">
-            Use a local target like <span className="mono-text">http://host.docker.internal:3000/webhook</span> if your app runs on the host.
+            If your app is running on the host, use <span className="mono-text">host.docker.internal</span>.
           </p>
 
-          <div className="setup-value">
+          <div className="setup-value input-card">
             <strong>Forward target</strong>
             <input
               className="text-input mono-text"
@@ -104,7 +107,7 @@ export function SetupRail({
           <div className="copy-row">
             <button className="secondary-button" onClick={onSaveForwardUrl} disabled={forwardState === 'saving'}>
               {forwardState === 'saving'
-                ? 'Saving…'
+                ? 'Saving...'
                 : forwardState === 'saved'
                   ? 'Saved'
                   : 'Save Forward Target'}
@@ -135,22 +138,22 @@ export function SetupRail({
 
         <section className="setup-card">
           <div className="step-badge">3. Send Test</div>
-          <h3 className="setup-title">Verify the whole path without leaving the dashboard</h3>
+          <h3 className="setup-title">Prove the whole path now</h3>
           <p className="subtle-copy">
-            This posts a sample event into the current endpoint so you can confirm ingest, forwarding, and display logic immediately.
+            This writes a sample event into the current endpoint and triggers forwarding if configured.
           </p>
 
-          <div className="setup-value">
-            <strong>What happens</strong>
+          <div className="setup-value compact">
+            <strong>Expected result</strong>
             <span className="setup-url">
-              HookRelay stores the event, pushes it to the live feed, and tries the forward target if one is configured.
+              The feed updates immediately. If forwarding is configured, HookRelay tries it on the same pass.
             </span>
           </div>
 
           <div className="copy-row">
             <button className="primary-button" onClick={onTriggerTest} disabled={testState === 'loading'}>
               {testState === 'loading'
-                ? 'Sending Test…'
+                ? 'Sending Test...'
                 : testState === 'success'
                   ? 'Test Sent'
                   : 'Trigger Test Event'}

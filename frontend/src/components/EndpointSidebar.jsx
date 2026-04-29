@@ -1,9 +1,36 @@
+import { useMemo, useState } from 'react'
 import { formatRelative } from '../ui.js'
 
 function getSourceLabel(endpoint) {
   if (endpoint?.source === 'server') return 'Saved'
   if (endpoint?.source === 'current_unsaved') return 'Current draft'
   return 'Local only'
+}
+
+function getEventCountLabel(endpoint) {
+  if (endpoint?.source === 'server') return `${endpoint.count} events`
+  if (endpoint?.count > 0) return `${endpoint.count} events`
+  return 'Pending'
+}
+
+function getLastActivityLabel(endpoint) {
+  if (endpoint?.lastActivity) return formatRelative(endpoint.lastActivity)
+  return 'Not persisted yet'
+}
+
+function sortEndpoints(endpoints, mode, sessionId) {
+  return [...endpoints].sort((left, right) => {
+    if (left.id === sessionId) return -1
+    if (right.id === sessionId) return 1
+
+    if (mode === 'name') {
+      return left.name.localeCompare(right.name)
+    }
+
+    const leftTime = left.lastActivity ? new Date(left.lastActivity).getTime() : 0
+    const rightTime = right.lastActivity ? new Date(right.lastActivity).getTime() : 0
+    return rightTime - leftTime
+  })
 }
 
 export function EndpointSidebar({
@@ -28,7 +55,23 @@ export function EndpointSidebar({
   copiedEndpointId,
   connected,
 }) {
-  function renderEndpointCard(endpoint) {
+  const [filterMode, setFilterMode] = useState('all')
+  const [sortMode, setSortMode] = useState('activity')
+
+  const filteredServerEndpoints = useMemo(
+    () => sortEndpoints(serverEndpoints, sortMode, sessionId),
+    [serverEndpoints, sortMode, sessionId],
+  )
+
+  const filteredLocalEndpoints = useMemo(
+    () => sortEndpoints(localEndpoints, sortMode, sessionId),
+    [localEndpoints, sortMode, sessionId],
+  )
+
+  const showSaved = filterMode === 'all' || filterMode === 'saved'
+  const showDrafts = filterMode === 'all' || filterMode === 'draft'
+
+  function renderEndpointRow(endpoint) {
     const isCurrent = endpoint.id === sessionId
     const allowDelete = endpoint.source === 'server'
     const allowForget = endpoint.source === 'local_history'
@@ -36,7 +79,7 @@ export function EndpointSidebar({
     return (
       <div
         key={endpoint.id}
-        className={`endpoint-card ${isCurrent ? 'active' : ''}`}
+        className={`endpoint-browser-row ${isCurrent ? 'active' : ''}`}
         role="button"
         tabIndex={0}
         onClick={() => onSelectEndpoint(endpoint.id)}
@@ -47,93 +90,74 @@ export function EndpointSidebar({
           }
         }}
       >
-        <div className="endpoint-header">
-          <div style={{ minWidth: 0 }}>
-            <p className="endpoint-name">{endpoint.name}</p>
-            <p className="endpoint-id">{endpoint.id}</p>
+        <div className="endpoint-browser-rowhead">
+          <div className="endpoint-browser-nameblock">
+            <div className="endpoint-browser-titleline">
+              <span className="endpoint-name">{endpoint.name}</span>
+              {isCurrent ? <span className="current-tag">Current</span> : null}
+            </div>
+            <div className="endpoint-id">{endpoint.id}</div>
           </div>
-          <div className={`dot ${isCurrent && connected ? 'live' : ''}`} />
+
+          <div className="endpoint-browser-actions">
+            <button
+              className="row-action-button"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onCopyEndpointId(endpoint.id)
+              }}
+            >
+              {copiedEndpointId === endpoint.id ? 'Copied' : 'ID'}
+            </button>
+
+            {allowDelete ? (
+              <button
+                className="row-action-button danger"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onRequestDelete(endpoint.id)
+                }}
+              >
+                Delete
+              </button>
+            ) : null}
+
+            {allowForget ? (
+              <button
+                className="row-action-button"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onForgetLocal(endpoint.id)
+                }}
+              >
+                Forget
+              </button>
+            ) : null}
+          </div>
         </div>
 
-        <div className="inline-actions" style={{ marginBottom: 12 }}>
+        <div className="endpoint-browser-meta">
           <span className={`source-pill ${endpoint.source === 'server' ? 'saved' : 'local'}`}>
             {getSourceLabel(endpoint)}
           </span>
-        </div>
-
-        <div className="meta-row">
-          <div className="meta-pill">
-            <span className="meta-label">Events</span>
-            <span className="meta-value">
-              {endpoint.source === 'server'
-                ? endpoint.count
-                : endpoint.count > 0
-                  ? endpoint.count
-                  : 'Not persisted yet'}
-            </span>
-          </div>
-          <div className="meta-pill">
-            <span className="meta-label">Last activity</span>
-            <span className="meta-value">
-              {endpoint.source === 'server'
-                ? formatRelative(endpoint.lastActivity)
-                : endpoint.lastActivity
-                  ? formatRelative(endpoint.lastActivity)
-                  : 'Not persisted yet'}
-            </span>
-          </div>
-        </div>
-
-        <div className="inline-actions" style={{ marginTop: 12 }}>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              onCopyEndpointId(endpoint.id)
-            }}
-          >
-            {copiedEndpointId === endpoint.id ? 'Copied ID' : 'Copy ID'}
-          </button>
-
-          {allowDelete ? (
-            <button
-              className="danger-button"
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                onRequestDelete(endpoint.id)
-              }}
-            >
-              Delete
-            </button>
-          ) : null}
-
-          {allowForget ? (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                onForgetLocal(endpoint.id)
-              }}
-            >
-              Forget
-            </button>
-          ) : null}
+          <span className="endpoint-browser-fact">{getEventCountLabel(endpoint)}</span>
+          <span className="endpoint-browser-fact">{getLastActivityLabel(endpoint)}</span>
         </div>
       </div>
     )
   }
 
   return (
-    <>
-      <section className="sidebar-section">
-        <div className="row-between" style={{ marginBottom: 14 }}>
+    <div className="session-browser-shell">
+      <section className="sidebar-section browser-toolbar">
+        <div className="row-between browser-toolbar-top">
           <div>
-            <div className="eyebrow">Endpoints</div>
+            <div className="eyebrow">Session browser</div>
             <p className="subtle-copy" style={{ marginTop: 6 }}>
-              Sessions are now treated like named local endpoints. Names stay in this browser.
+              Real saved endpoints first. Local drafts second.
             </p>
           </div>
           <button className="primary-button" onClick={() => setCreateFormOpen((prev) => !prev)}>
@@ -141,15 +165,44 @@ export function EndpointSidebar({
           </button>
         </div>
 
-        <input
-          className="search-input"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Filter endpoints by name or ID"
-        />
+        <div className="browser-search-row">
+          <input
+            className="search-input"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search name or ID"
+          />
 
-        {createFormOpen && (
-          <div className="sidebar-form">
+          <select
+            className="browser-sort"
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value)}
+            aria-label="Sort endpoints"
+          >
+            <option value="activity">Recent first</option>
+            <option value="name">Name</option>
+          </select>
+        </div>
+
+        <div className="browser-filter-row" role="tablist" aria-label="Endpoint filters">
+          {[
+            ['all', 'All'],
+            ['saved', 'Saved'],
+            ['draft', 'Draft'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`filter-chip ${filterMode === value ? 'active' : ''}`}
+              onClick={() => setFilterMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {createFormOpen ? (
+          <div className="sidebar-form browser-create-form">
             <input
               className="text-input"
               value={createName}
@@ -157,7 +210,7 @@ export function EndpointSidebar({
               placeholder="Endpoint name"
             />
             <input
-              className="text-input"
+              className="text-input mono-text"
               value={createId}
               onChange={(event) => setCreateId(event.target.value)}
               placeholder="Custom endpoint ID (optional)"
@@ -174,66 +227,71 @@ export function EndpointSidebar({
               Leave the ID blank if you want HookRelay to generate one automatically.
             </div>
           </div>
-        )}
+        ) : null}
       </section>
 
-      <section className="sidebar-section" style={{ paddingTop: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div className="row-between" style={{ marginBottom: 14 }}>
+      <section className="sidebar-section browser-table-shell">
+        <div className="browser-status-row">
           <div>
-            <div className="eyebrow">Saved Endpoints</div>
+            <div className="eyebrow">Endpoint inventory</div>
             <p className="subtle-copy" style={{ marginTop: 6 }}>
-              {sessionsLoading ? 'Refreshing saved endpoint state...' : `${serverEndpoints.length} server-backed endpoints.`}
+              {sessionsLoading
+                ? 'Refreshing saved endpoint state...'
+                : `${serverEndpoints.length} saved, ${localEndpoints.length} local drafts.`}
             </p>
           </div>
           <div className={`status-chip ${connected ? 'ready' : 'warning'}`}>
-            {connected ? 'Live stream connected' : 'Reconnecting'}
+            {connected ? 'Stream live' : 'Reconnecting'}
           </div>
         </div>
 
-        <div className="endpoint-list">
-          {serverEndpoints.map(renderEndpointCard)}
-
-          {serverEndpoints.length === 0 && (
-            <div className="empty-state">
-              <h3>No saved endpoints yet</h3>
-              <p className="subtle-copy">
-                Saved endpoints appear here only after HookRelay has actually seen them on the backend.
-              </p>
+        <div className="endpoint-browser">
+          {showSaved ? (
+            <div className="endpoint-browser-group">
+              <div className="endpoint-browser-grouphead">
+                <span>Saved Endpoints</span>
+                <span>{filteredServerEndpoints.length}</span>
+              </div>
+              {filteredServerEndpoints.length ? (
+                filteredServerEndpoints.map(renderEndpointRow)
+              ) : (
+                <div className="browser-empty">
+                  Saved endpoints appear here only after the backend has actually seen them.
+                </div>
+              )}
             </div>
-          )}
+          ) : null}
+
+          {showDrafts ? (
+            <div className="endpoint-browser-group">
+              <div className="endpoint-browser-grouphead">
+                <span>Local Drafts</span>
+                <span>{filteredLocalEndpoints.length}</span>
+              </div>
+              {filteredLocalEndpoints.length ? (
+                filteredLocalEndpoints.map(renderEndpointRow)
+              ) : (
+                <div className="browser-empty">
+                  No local-only drafts match the current filter.
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </section>
 
-      <section className="sidebar-section" style={{ paddingTop: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div className="row-between" style={{ marginBottom: 14 }}>
+      <section className="sidebar-section browser-current-strip">
+        <div className="eyebrow">Current endpoint</div>
+        <div className="browser-current-summary">
           <div>
-            <div className="eyebrow">Local Drafts</div>
-            <p className="subtle-copy" style={{ marginTop: 6 }}>
-              {localEndpoints.length
-                ? `${localEndpoints.length} local-only endpoint IDs in this browser.`
-                : 'No local-only endpoint IDs right now.'}
-            </p>
+            <p className="endpoint-name" style={{ marginTop: 8 }}>{currentEndpoint?.name || sessionId}</p>
+            <p className="endpoint-id">{sessionId}</p>
           </div>
-        </div>
-
-        <div className="endpoint-list" style={{ marginTop: 0 }}>
-          {localEndpoints.map(renderEndpointCard)}
-        </div>
-      </section>
-
-      <section className="sidebar-section">
-        <div className="eyebrow">Current Endpoint</div>
-        <p className="endpoint-name" style={{ marginTop: 10 }}>{currentEndpoint?.name || sessionId}</p>
-        <p className="endpoint-id">{sessionId}</p>
-        <div className="inline-actions" style={{ marginTop: 10 }}>
           <span className={`source-pill ${currentEndpoint?.source === 'server' ? 'saved' : 'local'}`}>
             {getSourceLabel(currentEndpoint)}
           </span>
         </div>
-        <div className="helper-note" style={{ marginTop: 10 }}>
-          Technical IDs stay compatible with the existing URL hash model. Saved means server-backed. Local only means this browser remembers the ID, but the backend does not.
-        </div>
       </section>
-    </>
+    </div>
   )
 }
