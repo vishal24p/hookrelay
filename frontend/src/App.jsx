@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 
 function generateSessionId() {
-  return Math.random().toString(36).slice(2, 10)
+  // Use crypto.randomUUID() for secure, unpredictable session IDs
+  return crypto.randomUUID()
 }
 
 function getSessionFromUrl() {

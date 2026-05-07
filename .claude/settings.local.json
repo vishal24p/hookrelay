@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile app/main.py)",
+      "Bash(node --check src/App.jsx)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(docker compose *)",
+      "Bash(python -m py_compile tests/test_*.py)"
+    ]
+  }
+}
