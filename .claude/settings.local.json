@@ -6,7 +6,10 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "Bash(docker compose *)",
-      "Bash(python -m py_compile tests/test_*.py)"
+      "Bash(python -m py_compile tests/test_*.py)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
