@@ -3,8 +3,8 @@ services:
   api:
     build: ./backend
     environment:
-      - DATABASE_URL=postgresql://webhookuser:webhookpass@postgres:5432/webhookdb
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-webhookuser}:${POSTGRES_PASSWORD:-webhookpass}@postgres:5432/${POSTGRES_DB:-webhookdb}}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - GITHUB_WEBHOOK_TOKEN=${GITHUB_WEBHOOK_TOKEN:-}
       - GITHUB_WEBHOOK_OWNER=${GITHUB_WEBHOOK_OWNER:-}
       - GITHUB_WEBHOOK_REPO=${GITHUB_WEBHOOK_REPO:-}
@@ -51,9 +51,9 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: webhookuser
-      POSTGRES_PASSWORD: webhookpass
-      POSTGRES_DB: webhookdb
+      POSTGRES_USER: ${POSTGRES_USER:-webhookuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webhookpass}
+      POSTGRES_DB: ${POSTGRES_DB:-webhookdb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
