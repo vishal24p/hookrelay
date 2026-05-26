@@ -1,5 +1,12 @@
 export const uiFontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 export const codeFontStack = '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace'
+export const razorpayFixtureOptions = [
+  { key: 'payment_captured', label: 'Payment captured' },
+  { key: 'payment_failed', label: 'Payment failed' },
+  { key: 'order_paid', label: 'Order paid' },
+  { key: 'refund_processed', label: 'Refund processed' },
+  { key: 'subscription_charged', label: 'Subscription charged' },
+]
 
 export function generateSessionId() {
   return Math.random().toString(36).slice(2, 10)
@@ -79,19 +86,46 @@ export function prettyPrintObject(value) {
 }
 
 export function getForwardBadge(event) {
+  switch (event?.forward_delivery_status) {
+    case 'pending':
+      return { tone: 'info', label: 'Forwarding' }
+    case 'success':
+      return { tone: 'success', label: 'Delivered' }
+    case 'retry_risk':
+      return { tone: 'warning', label: 'Retry risk' }
+    case 'delivery_failure':
+      return { tone: 'error', label: 'Delivery failure' }
+    case 'not_forwarded':
+      return { tone: 'info', label: 'Not forwarded' }
+    default:
+      break
+  }
+
   if (event?.forward_error) {
-    return { tone: 'error', label: 'Forward error' }
+    return { tone: 'error', label: 'Delivery failure' }
   }
   if (event?.forward_status == null) {
     return { tone: 'info', label: 'Not forwarded' }
   }
   if (event.forward_status >= 200 && event.forward_status < 300) {
-    return { tone: 'success', label: `${event.forward_status} OK` }
+    return { tone: 'success', label: 'Delivered' }
   }
-  if (event.forward_status >= 400 && event.forward_status < 500) {
-    return { tone: 'warning', label: `${event.forward_status} Client error` }
+  return { tone: 'warning', label: 'Retry risk' }
+}
+
+export function getSignatureBadge(event) {
+  switch (event?.signature_status) {
+    case 'valid':
+      return { tone: 'success', label: 'Signature valid' }
+    case 'invalid':
+      return { tone: 'error', label: 'Signature invalid' }
+    case 'missing_secret':
+      return { tone: 'warning', label: 'Secret missing' }
+    case 'missing_signature':
+      return { tone: 'warning', label: 'Signature missing' }
+    default:
+      return { tone: 'info', label: 'Not checked' }
   }
-  return { tone: 'error', label: `${event.forward_status} Server error` }
 }
 
 export async function readJson(response) {

@@ -5,14 +5,6 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-webhookuser}:${POSTGRES_PASSWORD:-webhookpass}@postgres:5432/${POSTGRES_DB:-webhookdb}}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      - GITHUB_WEBHOOK_TOKEN=${GITHUB_WEBHOOK_TOKEN:-}
-      - GITHUB_WEBHOOK_OWNER=${GITHUB_WEBHOOK_OWNER:-}
-      - GITHUB_WEBHOOK_REPO=${GITHUB_WEBHOOK_REPO:-}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
-      - GITHUB_WEBHOOK_SESSION_ID=${GITHUB_WEBHOOK_SESSION_ID:-github}
-      - GITHUB_WEBHOOK_EVENTS=${GITHUB_WEBHOOK_EVENTS:-push,ping}
-      - GITHUB_WEBHOOK_AUTOCONFIG=${GITHUB_WEBHOOK_AUTOCONFIG:-true}
-      - GITHUB_WEBHOOK_POLL_INTERVAL_SECONDS=${GITHUB_WEBHOOK_POLL_INTERVAL_SECONDS:-10}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

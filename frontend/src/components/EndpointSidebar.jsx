@@ -37,7 +37,6 @@ export function EndpointSidebar({
   serverEndpoints,
   localEndpoints,
   sessionId,
-  currentEndpoint,
   sessionsLoading,
   searchQuery,
   setSearchQuery,
@@ -155,13 +154,10 @@ export function EndpointSidebar({
       <section className="sidebar-section browser-toolbar">
         <div className="row-between browser-toolbar-top">
           <div>
-            <div className="eyebrow">Session browser</div>
-            <p className="subtle-copy" style={{ marginTop: 6 }}>
-              Real saved endpoints first. Local drafts second.
-            </p>
+            <div className="eyebrow">Endpoints</div>
           </div>
-          <button className="primary-button" onClick={() => setCreateFormOpen((prev) => !prev)}>
-            {createFormOpen ? 'Close' : 'New Endpoint'}
+          <button className="primary-button compact-button" onClick={() => setCreateFormOpen((prev) => !prev)}>
+            {createFormOpen ? 'Close' : 'New'}
           </button>
         </div>
 
@@ -217,14 +213,11 @@ export function EndpointSidebar({
             />
             <div className="inline-actions">
               <button className="primary-button" onClick={onCreateEndpoint}>
-                Create Endpoint
+                Create
               </button>
               <button className="ghost-button" onClick={() => setCreateFormOpen(false)}>
                 Cancel
               </button>
-            </div>
-            <div className="helper-note">
-              Leave the ID blank if you want HookRelay to generate one automatically.
             </div>
           </div>
         ) : null}
@@ -233,10 +226,10 @@ export function EndpointSidebar({
       <section className="sidebar-section browser-table-shell">
         <div className="browser-status-row">
           <div>
-            <div className="eyebrow">Endpoint inventory</div>
+            <div className="eyebrow">Inventory</div>
             <p className="subtle-copy" style={{ marginTop: 6 }}>
               {sessionsLoading
-                ? 'Refreshing saved endpoint state...'
+                ? 'Refreshing...'
                 : `${serverEndpoints.length} saved, ${localEndpoints.length} local drafts.`}
             </p>
           </div>
@@ -246,50 +239,29 @@ export function EndpointSidebar({
         </div>
 
         <div className="endpoint-browser">
-          {showSaved ? (
+          {showSaved && filteredServerEndpoints.length ? (
             <div className="endpoint-browser-group">
               <div className="endpoint-browser-grouphead">
                 <span>Saved Endpoints</span>
                 <span>{filteredServerEndpoints.length}</span>
               </div>
-              {filteredServerEndpoints.length ? (
-                filteredServerEndpoints.map(renderEndpointRow)
-              ) : (
-                <div className="browser-empty">
-                  Saved endpoints appear here only after the backend has actually seen them.
-                </div>
-              )}
+              {filteredServerEndpoints.map(renderEndpointRow)}
             </div>
           ) : null}
 
-          {showDrafts ? (
+          {showDrafts && filteredLocalEndpoints.length ? (
             <div className="endpoint-browser-group">
               <div className="endpoint-browser-grouphead">
                 <span>Local Drafts</span>
                 <span>{filteredLocalEndpoints.length}</span>
               </div>
-              {filteredLocalEndpoints.length ? (
-                filteredLocalEndpoints.map(renderEndpointRow)
-              ) : (
-                <div className="browser-empty">
-                  No local-only drafts match the current filter.
-                </div>
-              )}
+              {filteredLocalEndpoints.map(renderEndpointRow)}
             </div>
           ) : null}
-        </div>
-      </section>
 
-      <section className="sidebar-section browser-current-strip">
-        <div className="eyebrow">Current endpoint</div>
-        <div className="browser-current-summary">
-          <div>
-            <p className="endpoint-name" style={{ marginTop: 8 }}>{currentEndpoint?.name || sessionId}</p>
-            <p className="endpoint-id">{sessionId}</p>
-          </div>
-          <span className={`source-pill ${currentEndpoint?.source === 'server' ? 'saved' : 'local'}`}>
-            {getSourceLabel(currentEndpoint)}
-          </span>
+          {(!showSaved || !filteredServerEndpoints.length) && (!showDrafts || !filteredLocalEndpoints.length) ? (
+            <div className="browser-empty">No endpoints match this filter.</div>
+          ) : null}
         </div>
       </section>
     </div>

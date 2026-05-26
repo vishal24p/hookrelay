@@ -17,31 +17,44 @@ class WebhookEventOut(BaseModel):
     forward_response: Optional[str]   = None
     forward_error:    Optional[str]   = None
     forwarded_at:     Optional[datetime] = None
+    forward_delivery_status: str = "not_forwarded"
+    forward_delivery_message: Optional[str] = None
+
+    provider:            str = "generic"
+    provider_event_type: Optional[str] = None
+    provider_event_id:   Optional[str] = None
+    signature_status:    str = "not_applicable"
+    signature_message:   Optional[str] = None
+    duplicate_of_id:     Optional[int] = None
+    is_local_fixture: bool = False
+    fixture_source: Optional[str] = None
+    fixture_key: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_refund_id: Optional[str] = None
+    razorpay_subscription_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
 
 class SessionConfigIn(BaseModel):
     forward_url: Optional[str] = None
+    provider: Optional[str] = None
+    razorpay_webhook_secret: Optional[str] = None
 
 
 class SessionConfigOut(BaseModel):
     session_id:  str
     forward_url: Optional[str] = None
+    provider: str = "generic"
+    razorpay_webhook_secret_configured: bool = False
 
     model_config = {"from_attributes": True}
 
 
-class GitHubWebhookStatusOut(BaseModel):
-    configured: bool
-    enabled: bool
-    owner: Optional[str] = None
-    repo: Optional[str] = None
-    session_id: str
-    events: list[str]
-    current_tunnel_url: Optional[str] = None
-    desired_webhook_url: Optional[str] = None
-    managed_hook_id: Optional[int] = None
-    last_sync_status: str
-    last_sync_error: Optional[str] = None
-    last_synced_at: Optional[datetime] = None
+class RazorpayFixtureRequestOut(BaseModel):
+    fixture_key: str
+    label: str
+    headers: Dict[str, Any]
+    body: str
+    signature_generated: bool = False

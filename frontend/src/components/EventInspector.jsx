@@ -1,6 +1,7 @@
 import {
   formatDateTime,
   getForwardBadge,
+  getSignatureBadge,
   prettyPrintBody,
   prettyPrintObject,
 } from '../ui.js'
@@ -18,6 +19,24 @@ export function EventInspector({
     ['forward', 'Forward Result'],
     ['meta', 'Meta'],
   ]
+  const duplicateLabel = event?.duplicate_of_id
+    ? event.method === 'REPLAY'
+      ? 'Replay duplicate test'
+      : 'Duplicate delivery'
+    : event?.provider_event_id
+      ? 'No duplicate found'
+      : 'Duplicate check unavailable'
+
+  const duplicateMessage = event?.duplicate_of_id
+    ? `Same Razorpay event ID as Event #${event.duplicate_of_id}.`
+    : event?.provider_event_id
+      ? 'No earlier event on this endpoint has the same Razorpay event ID.'
+      : 'Razorpay event ID is missing, so HookRelay cannot compare deliveries.'
+  const forwardBadge = getForwardBadge(event)
+  const forwardMessage = event?.forward_delivery_message || 'No forwarding diagnostics recorded for this event.'
+  const replayMessage = event?.method === 'REPLAY'
+    ? 'Replay sent the stored body, headers, and query params from the original event.'
+    : null
 
   return (
     <section className="surface-card inspector-card">
@@ -25,13 +44,10 @@ export function EventInspector({
         {event ? (
           <>
             <div>
-              <div className="eyebrow">Event inspector</div>
+              <div className="eyebrow">Inspector</div>
               <h3 className="surface-title" style={{ marginTop: 8 }}>
                 Event #{event.id}
               </h3>
-              <p className="subtle-copy" style={{ marginTop: 8 }}>
-                Inspect the raw body, forwarding result, and the actual metadata the backend stores.
-              </p>
             </div>
             <div className="inline-actions inspector-actions">
               <button className="secondary-button" onClick={() => onDownloadEvent(event)}>
@@ -46,16 +62,16 @@ export function EventInspector({
                   ? 'Replaying...'
                   : replayState.status === 'success' && replayState.eventId === event.id
                     ? 'Replayed'
-                    : 'Replay Event'}
+                    : 'Replay'}
               </button>
             </div>
           </>
         ) : (
           <div>
-            <div className="eyebrow">Event inspector</div>
+            <div className="eyebrow">Inspector</div>
             <h3 className="surface-title" style={{ marginTop: 8 }}>Pick an event</h3>
             <p className="subtle-copy" style={{ marginTop: 8 }}>
-              The inspector stays blank until you select something real from the feed.
+              Show only fields needed to debug delivery.
             </p>
           </div>
         )}
@@ -83,14 +99,21 @@ export function EventInspector({
             {activeTab === 'forward' ? (
               <div className="inspector-section-stack">
                 <div className="inspector-summary-strip">
-                  <span className={`pill ${getForwardBadge(event).tone}`}>{getForwardBadge(event).label}</span>
+                  <span className={`pill ${forwardBadge.tone}`}>{forwardBadge.label}</span>
                   {event.forwarded_at ? <span className="pill">Forwarded {formatDateTime(event.forwarded_at)}</span> : null}
+                  {replayMessage ? <span className="pill warning">Replay delivery</span> : null}
                 </div>
+                <p className={`diagnostic-note ${forwardBadge.tone}`}>{forwardMessage}</p>
+                {replayMessage ? <p className="diagnostic-note warning">{replayMessage}</p> : null}
 
                 <div className="meta-grid">
                   <div className="meta-pill">
                     <span className="meta-label">Forward status</span>
                     <span className="meta-value">{event.forward_status ?? 'Not available'}</span>
+                  </div>
+                  <div className="meta-pill">
+                    <span className="meta-label">Delivery result</span>
+                    <span className="meta-value">{event.forward_delivery_status || 'not_forwarded'}</span>
                   </div>
                   <div className="meta-pill">
                     <span className="meta-label">Forwarded at</span>
@@ -129,6 +152,61 @@ export function EventInspector({
                     <span className="meta-label">Event ID</span>
                     <span className="meta-value mono-text">{event.id}</span>
                   </div>
+                  <div className="meta-pill">
+                    <span className="meta-label">Fixture</span>
+                    <span className="meta-value">{event.is_local_fixture ? 'Local fixture' : 'Provider delivery'}</span>
+                  </div>
+                  <div className="meta-pill">
+                    <span className="meta-label">Fixture key</span>
+                    <span className="meta-value mono-text">{event.fixture_key || 'Not available'}</span>
+                  </div>
+                </div>
+
+                <div className="inspector-section">
+                  <div className="eyebrow inspector-section-title">Razorpay diagnostics</div>
+                  <div className="meta-grid">
+                    <div className="meta-pill">
+                      <span className="meta-label">Provider mode</span>
+                      <span className="meta-value">{event.provider || 'generic'}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Event type</span>
+                      <span className="meta-value">{event.provider_event_type || 'Not available'}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Provider event ID</span>
+                      <span className="meta-value mono-text">{event.provider_event_id || 'Not available'}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Duplicate check</span>
+                      <span className="meta-value">{duplicateLabel}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Payment ID</span>
+                      <span className="meta-value mono-text">{event.razorpay_payment_id || 'Not available'}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Order ID</span>
+                      <span className="meta-value mono-text">{event.razorpay_order_id || 'Not available'}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Refund ID</span>
+                      <span className="meta-value mono-text">{event.razorpay_refund_id || 'Not available'}</span>
+                    </div>
+                    <div className="meta-pill">
+                      <span className="meta-label">Subscription ID</span>
+                      <span className="meta-value mono-text">{event.razorpay_subscription_id || 'Not available'}</span>
+                    </div>
+                  </div>
+                  <div className="inspector-summary-strip" style={{ marginTop: 12 }}>
+                    <span className={`pill ${getSignatureBadge(event).tone}`}>{getSignatureBadge(event).label}</span>
+                    <span className="pill">{event.signature_message || 'No signature diagnostics recorded.'}</span>
+                    {event.duplicate_of_id ? (
+                      <span className="pill warning">{duplicateMessage}</span>
+                    ) : (
+                      <span className="pill">{duplicateMessage}</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="inspector-section">
@@ -141,12 +219,6 @@ export function EventInspector({
                   <pre className="code-block">{prettyPrintObject(event.query_params)}</pre>
                 </div>
 
-                <div className="empty-state">
-                  <h3>Schema limit</h3>
-                  <p className="subtle-copy">
-                    Remote IP, retry count, signature verification details, and transport timing are not available in the current event schema. This UI does not invent data.
-                  </p>
-                </div>
               </div>
             ) : null}
           </div>
@@ -156,7 +228,7 @@ export function EventInspector({
           <div className="empty-state">
             <h3>No event selected</h3>
             <p className="subtle-copy">
-              Select an event from the list to inspect its raw body, forward result, and stored metadata.
+              Select an event from the list.
             </p>
           </div>
         </div>

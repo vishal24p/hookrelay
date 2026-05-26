@@ -5,7 +5,28 @@ function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-export function useEventStream({ sessionId, controlApiBase, websocketOrigin }) {
+function randomId(prefix) {
+  return `${prefix}_${Math.random().toString(36).slice(2, 12)}`
+}
+
+function buildGenericTestWebhook() {
+  return {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HookRelay-Fixture': 'generic-local',
+    },
+    body: JSON.stringify({
+      event_type: 'hookrelay.test',
+      event_id: randomId('evt'),
+      created_at: new Date().toISOString(),
+      data: {
+        message: 'Local test webhook',
+      },
+    }),
+  }
+}
+
+export function useEventStream({ sessionId, controlApiBase, websocketOrigin, provider }) {
   const [events, setEvents] = useState([])
   const [selectedEventId, setSelectedEventId] = useState(null)
   const [loadingHistory, setLoadingHistory] = useState(true)
@@ -115,20 +136,24 @@ export function useEventStream({ sessionId, controlApiBase, websocketOrigin }) {
     }
   }, [sessionId, websocketOrigin.host, websocketOrigin.protocol])
 
-  async function sendTestWebhook() {
+  async function prepareRazorpayFixture(fixtureKey) {
+    return readJson(await fetch(`${controlApiBase}/sessions/${sessionId}/razorpay-fixtures/${fixtureKey}`, {
+      method: 'POST',
+    }))
+  }
+
+  async function sendTestWebhook(fixtureKey = 'payment_captured') {
     setTestState('loading')
     setActionError('')
     try {
+      const testWebhook = provider === 'razorpay'
+        ? await prepareRazorpayFixture(fixtureKey)
+        : buildGenericTestWebhook()
+
       const response = await fetch(`${controlApiBase}/hooks/${sessionId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: 'payment.captured',
-          order_id: `order_${Math.random().toString(36).slice(2, 10)}`,
-          amount: Math.floor(Math.random() * 9000) + 1000,
-          currency: 'USD',
-          status: 'success',
-        }),
+        headers: testWebhook.headers,
+        body: testWebhook.body,
       })
       await readJson(response)
       setTestState('success')

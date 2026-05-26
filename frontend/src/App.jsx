@@ -11,6 +11,7 @@ import {
   codeFontStack,
   copyText,
   getErrorMessage,
+  razorpayFixtureOptions,
   readJson,
   uiFontStack,
 } from './ui.js'
@@ -45,6 +46,11 @@ export default function App() {
     syncCurrentSummary,
   } = useEndpointState({ controlApiBase })
 
+  const [provider, setProvider] = useState('razorpay')
+  const [razorpaySecret, setRazorpaySecret] = useState('')
+  const [razorpaySecretConfigured, setRazorpaySecretConfigured] = useState(false)
+  const [selectedFixtureKey, setSelectedFixtureKey] = useState('payment_captured')
+
   const {
     events,
     selectedEvent,
@@ -66,6 +72,7 @@ export default function App() {
     sessionId,
     controlApiBase,
     websocketOrigin,
+    provider,
   })
 
   const [copyState, setCopyState] = useState({
@@ -153,10 +160,16 @@ export default function App() {
         const data = await readJson(await fetch(`${controlApiBase}/sessions/${sessionId}/config`))
         if (cancelled) return
         setForwardUrl(data?.forward_url || '')
+        setProvider(data?.provider === 'generic' && data?.forward_url ? 'generic' : 'razorpay')
+        setRazorpaySecret('')
+        setRazorpaySecretConfigured(Boolean(data?.razorpay_webhook_secret_configured))
         setForwardState('idle')
       } catch (error) {
         if (cancelled) return
         setForwardUrl('')
+        setProvider('razorpay')
+        setRazorpaySecret('')
+        setRazorpaySecretConfigured(false)
         setForwardState('error')
         setForwardError(getErrorMessage(error, 'Unable to load the forward target for this endpoint.'))
       }
@@ -219,14 +232,27 @@ export default function App() {
     setForwardState('saving')
     setForwardError('')
     try {
+      const payload = {
+        forward_url: forwardUrl || null,
+        provider,
+      }
+      if (provider !== 'razorpay') {
+        payload.razorpay_webhook_secret = ''
+      } else if (razorpaySecret.trim()) {
+        payload.razorpay_webhook_secret = razorpaySecret
+      }
+
       const response = await fetch(`${controlApiBase}/sessions/${sessionId}/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ forward_url: forwardUrl || null }),
+        body: JSON.stringify(payload),
       })
 
       const data = await readJson(response)
       setForwardUrl(data?.forward_url || '')
+      setProvider(data?.provider === 'razorpay' ? 'razorpay' : 'generic')
+      setRazorpaySecret('')
+      setRazorpaySecretConfigured(Boolean(data?.razorpay_webhook_secret_configured))
       setForwardState('saved')
       window.setTimeout(() => {
         setForwardState((prev) => (prev === 'saved' ? 'idle' : prev))
@@ -234,6 +260,35 @@ export default function App() {
     } catch (error) {
       setForwardState('error')
       setForwardError(getErrorMessage(error, 'Saving the forward target failed.'))
+    }
+  }
+
+  async function handleClearRazorpaySecret() {
+    setForwardState('saving')
+    setForwardError('')
+    try {
+      const response = await fetch(`${controlApiBase}/sessions/${sessionId}/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          forward_url: forwardUrl || null,
+          provider,
+          razorpay_webhook_secret: '',
+        }),
+      })
+
+      const data = await readJson(response)
+      setForwardUrl(data?.forward_url || '')
+      setProvider(data?.provider === 'razorpay' ? 'razorpay' : 'generic')
+      setRazorpaySecret('')
+      setRazorpaySecretConfigured(Boolean(data?.razorpay_webhook_secret_configured))
+      setForwardState('saved')
+      window.setTimeout(() => {
+        setForwardState((prev) => (prev === 'saved' ? 'idle' : prev))
+      }, 1600)
+    } catch (error) {
+      setForwardState('error')
+      setForwardError(getErrorMessage(error, 'Clearing the Razorpay secret failed.'))
     }
   }
 
@@ -323,24 +378,24 @@ export default function App() {
       <style>{`
         :root {
           color-scheme: dark;
-          --bg: #09090b;
-          --panel: #0f1117;
-          --panel-2: #151924;
-          --panel-3: #1d2332;
-          --line: rgba(255,255,255,0.07);
-          --line-strong: rgba(255,255,255,0.16);
-          --text: #f4f4f5;
-          --muted: #a1a1aa;
-          --dim: #71717a;
-          --accent: #86a0ff;
-          --accent-soft: rgba(134,160,255,0.16);
-          --accent-soft-strong: rgba(134,160,255,0.24);
+          --bg: #080a0d;
+          --panel: #0c0f14;
+          --panel-2: #11151c;
+          --panel-3: #151922;
+          --line: #242a34;
+          --line-strong: #343b48;
+          --text: #f4f6fb;
+          --muted: #9ba2ae;
+          --dim: #858b98;
+          --accent: #3d62d9;
+          --accent-soft: rgba(61,98,217,0.18);
+          --accent-soft-strong: rgba(61,98,217,0.28);
           --success: #34d399;
           --warning: #fbbf24;
           --danger: #fb7185;
-          --shadow: 0 22px 55px rgba(0,0,0,0.34);
-          --radius-lg: 20px;
-          --radius-md: 14px;
+          --shadow: none;
+          --radius-lg: 8px;
+          --radius-md: 6px;
           --space-1: 4px;
           --space-2: 8px;
           --space-3: 12px;
@@ -352,15 +407,12 @@ export default function App() {
         html, body, #root { height: 100%; }
         body {
           margin: 0;
-          background:
-            radial-gradient(circle at top left, rgba(124,140,255,0.16), transparent 28%),
-            radial-gradient(circle at bottom right, rgba(56,189,248,0.10), transparent 24%),
-            var(--bg);
+          background: var(--bg);
           color: var(--text);
           font-family: ${uiFontStack};
           -webkit-font-smoothing: antialiased;
         }
-        button, input, textarea {
+        button, input, textarea, select {
           font: inherit;
         }
         button {
@@ -370,7 +422,8 @@ export default function App() {
         }
         button:focus-visible,
         input:focus-visible,
-        textarea:focus-visible {
+        textarea:focus-visible,
+        select:focus-visible {
           outline: 2px solid var(--accent);
           outline-offset: 2px;
         }
@@ -384,17 +437,16 @@ export default function App() {
         }
         .app-shell {
           display: grid;
-          grid-template-columns: 332px minmax(0, 1fr);
+          grid-template-columns: 260px minmax(0, 1fr);
           min-height: 100%;
         }
         .sidebar {
           border-right: 1px solid var(--line);
           background: rgba(9, 11, 17, 0.9);
-          backdrop-filter: blur(18px);
           display: flex;
           flex-direction: column;
           min-height: 100vh;
-          overflow: hidden;
+          overflow: auto;
         }
         .main-shell {
           display: grid;
@@ -405,15 +457,15 @@ export default function App() {
         .sidebar-section,
         .setup-wrap,
         .content-wrap {
-          padding-left: 20px;
-          padding-right: 20px;
+          padding-left: 16px;
+          padding-right: 16px;
         }
         .brand-row {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding-top: 22px;
-          padding-bottom: 18px;
+          padding-top: 16px;
+          padding-bottom: 14px;
           border-bottom: 1px solid var(--line);
         }
         .brand-block {
@@ -422,31 +474,30 @@ export default function App() {
           gap: 12px;
         }
         .brand-mark {
-          width: 36px;
-          height: 36px;
-          border-radius: 12px;
-          background: linear-gradient(160deg, rgba(124,140,255,0.22), rgba(124,140,255,0.02));
-          border: 1px solid rgba(124,140,255,0.24);
+          width: 26px;
+          height: 26px;
+          border-radius: 6px;
+          background: rgba(61,98,217,0.12);
+          border: 1px solid rgba(61,98,217,0.36);
           display: grid;
           place-items: center;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
         }
         .brand-mark img {
-          width: 18px;
-          height: 18px;
+          width: 14px;
+          height: 14px;
           filter: brightness(0) invert(1);
         }
         .eyebrow {
-          font-size: 11px;
-          letter-spacing: 0.12em;
+          font-size: 10px;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
           color: var(--dim);
         }
         .title {
           margin: 0;
-          font-size: 17px;
+          font-size: 16px;
           font-weight: 700;
-          letter-spacing: -0.03em;
+          letter-spacing: 0;
         }
         .subtle-copy {
           margin: 0;
@@ -455,8 +506,8 @@ export default function App() {
           line-height: 1.5;
         }
         .sidebar-section {
-          padding-top: 16px;
-          padding-bottom: 16px;
+          padding-top: 14px;
+          padding-bottom: 14px;
         }
         .sidebar-section + .sidebar-section {
           border-top: 1px solid rgba(255,255,255,0.04);
@@ -469,20 +520,20 @@ export default function App() {
         }
         .browser-toolbar {
           display: grid;
-          gap: 14px;
+          gap: 10px;
         }
         .browser-search-row {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 132px;
-          gap: 10px;
+          grid-template-columns: 1fr;
+          gap: 8px;
         }
         .browser-sort {
           width: 100%;
-          border-radius: 12px;
+          border-radius: 6px;
           border: 1px solid var(--line);
           background: rgba(255,255,255,0.03);
           color: var(--text);
-          padding: 12px 14px;
+          padding: 9px 10px;
         }
         .browser-filter-row {
           display: flex;
@@ -521,8 +572,8 @@ export default function App() {
           min-height: 0;
           overflow: auto;
           border: 1px solid var(--line);
-          border-radius: 18px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+          border-radius: 8px;
+          background: transparent;
         }
         .endpoint-browser-group + .endpoint-browser-group {
           border-top: 1px solid rgba(255,255,255,0.05);
@@ -596,7 +647,7 @@ export default function App() {
         }
         .row-action-button {
           border: 1px solid var(--line);
-          border-radius: 999px;
+          border-radius: 6px;
           background: rgba(255,255,255,0.03);
           color: var(--muted);
           padding: 5px 9px;
@@ -642,8 +693,8 @@ export default function App() {
           align-items: center;
           justify-content: center;
           gap: 8px;
-          border-radius: 12px;
-          padding: 11px 14px;
+          border-radius: 6px;
+          padding: 9px 12px;
           cursor: pointer;
           transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
           white-space: nowrap;
@@ -652,12 +703,13 @@ export default function App() {
         .secondary-button:hover,
         .danger-button:hover,
         .ghost-button:hover {
-          transform: translateY(-1px);
+          border-color: var(--line-strong);
         }
         .primary-button {
           color: white;
-          background: linear-gradient(180deg, #8b98ff, #6e7df7);
-          box-shadow: 0 14px 28px rgba(91, 104, 255, 0.28);
+          background: #3d62d9;
+          border: 1px solid #496fe8;
+          box-shadow: none;
         }
         .secondary-button {
           background: rgba(255,255,255,0.04);
@@ -685,15 +737,28 @@ export default function App() {
         .search-input,
         .text-input {
           width: 100%;
-          border-radius: 12px;
+          border-radius: 6px;
           border: 1px solid var(--line);
-          background: rgba(255,255,255,0.03);
+          background: #0d1016;
           color: var(--text);
-          padding: 12px 14px;
+          padding: 9px 10px;
+        }
+        .compact-button {
+          padding: 7px 10px;
+          font-size: 12px;
+        }
+        .compact-input {
+          min-height: 34px;
+          padding: 8px 10px;
+          font-size: 12px;
         }
         .search-input::placeholder,
         .text-input::placeholder {
           color: var(--dim);
+        }
+        .text-input option {
+          background: var(--panel-2);
+          color: var(--text);
         }
         .helper-note {
           font-size: 12px;
@@ -777,14 +842,14 @@ export default function App() {
         }
         .meta-label {
           display: block;
-          font-size: 10px;
+          font-size: 11px;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: var(--dim);
+          letter-spacing: 0.06em;
+          color: var(--muted);
           margin-bottom: 4px;
         }
         .meta-value {
-          font-size: 12px;
+          font-size: 13px;
           color: var(--text);
         }
         .dot {
@@ -802,66 +867,110 @@ export default function App() {
           margin-top: 14px;
           padding: 14px;
           border: 1px solid var(--line);
-          border-radius: 16px;
+          border-radius: 8px;
           background: rgba(255,255,255,0.03);
           display: grid;
           gap: 10px;
         }
         .page-top {
-          padding-top: 16px;
-          padding-bottom: 14px;
+          padding-top: 10px;
+          padding-bottom: 10px;
           border-bottom: 1px solid var(--line);
-          background: rgba(13,14,20,0.78);
-          backdrop-filter: blur(14px);
+          background: var(--bg);
         }
         .setup-wrap {
-          padding-top: 18px;
-          padding-bottom: 18px;
+          padding-top: 8px;
+          padding-bottom: 8px;
         }
-        .setup-grid {
+        .setup-grid,
+        .setup-strip {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 16px;
-        }
-        .setup-grid.compact {
-          gap: 14px;
+          grid-template-columns: repeat(4, minmax(170px, 1fr));
+          gap: 0;
         }
         .setup-hero {
           display: flex;
           justify-content: space-between;
           gap: 18px;
           align-items: flex-start;
-          margin-bottom: 16px;
+          margin-bottom: 12px;
         }
         .setup-hero-title {
-          font-size: 24px;
-          margin-top: 8px;
+          font-size: 22px;
+          margin-top: 6px;
         }
         .setup-hero-id {
-          min-width: 240px;
-          padding: 14px 16px;
-          border-radius: 16px;
+          min-width: 160px;
+          padding: 10px 12px;
+          border-radius: 8px;
           border: 1px solid var(--line);
-          background: rgba(255,255,255,0.03);
+          background: var(--panel);
           display: grid;
-          gap: 8px;
-          font-size: 13px;
+          gap: 4px;
+          font-size: 12px;
           color: var(--muted);
         }
         .setup-card,
         .surface-card {
           border: 1px solid var(--line);
-          border-radius: 20px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
+          border-radius: 8px;
+          background: var(--panel);
           box-shadow: var(--shadow);
         }
         .setup-card {
-          padding: 16px;
+          padding: 14px;
         }
         .primary-setup-card {
           background:
-            radial-gradient(circle at top left, rgba(134,160,255,0.18), transparent 42%),
-            linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
+            linear-gradient(180deg, rgba(134,160,255,0.08), rgba(255,255,255,0.026));
+        }
+        .test-setup-card {
+          border-color: rgba(134,160,255,0.20);
+          background: linear-gradient(180deg, rgba(134,160,255,0.075), rgba(255,255,255,0.024));
+        }
+        .setup-strip {
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          background: var(--panel);
+          overflow: hidden;
+        }
+        .setup-step {
+          padding: 16px;
+          min-width: 0;
+          border-right: 1px solid var(--line);
+          display: grid;
+          align-content: start;
+          gap: 10px;
+        }
+        .setup-step:last-child {
+          border-right: 0;
+        }
+        .step-label {
+          font-size: 10px;
+          color: var(--dim);
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .setup-primary {
+          margin: 0;
+          color: var(--text);
+          font-size: 12px;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
+        }
+        .setup-secondary {
+          margin: 0;
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
+        }
+        .setup-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
         }
         .step-badge {
           display: inline-flex;
@@ -880,24 +989,33 @@ export default function App() {
           margin: 0 0 8px;
           font-size: 15px;
           font-weight: 600;
-          letter-spacing: -0.02em;
+          letter-spacing: 0;
         }
         .setup-value {
           margin-top: 12px;
-          padding: 14px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.06);
-          background: rgba(8,8,12,0.46);
+          padding: 12px 0 0;
+          border-top: 1px solid rgba(255,255,255,0.055);
+          background: transparent;
         }
         .setup-value.focus {
           border-color: rgba(134,160,255,0.22);
-          background: rgba(7, 11, 22, 0.72);
+          border-radius: 10px;
+          border: 1px solid rgba(134,160,255,0.20);
+          background: rgba(7, 11, 22, 0.44);
+          padding: 12px;
         }
         .setup-value.compact {
-          padding: 12px 14px;
+          padding-top: 10px;
         }
         .setup-value.input-card {
-          background: rgba(7,8,12,0.62);
+          border-radius: 10px;
+          border: 1px solid rgba(255,255,255,0.055);
+          background: rgba(7,8,12,0.30);
+          padding: 12px;
+        }
+        .setup-value.fixture-panel {
+          border-color: rgba(134,160,255,0.18);
+          background: rgba(7, 11, 22, 0.46);
         }
         .setup-stack {
           display: grid;
@@ -905,10 +1023,10 @@ export default function App() {
         }
         .setup-value strong {
           display: block;
-          font-size: 11px;
-          color: var(--dim);
+          font-size: 12px;
+          color: var(--muted);
           text-transform: uppercase;
-          letter-spacing: 0.08em;
+          letter-spacing: 0.06em;
           margin-bottom: 8px;
         }
         .setup-url {
@@ -925,6 +1043,12 @@ export default function App() {
           gap: 10px;
           margin-top: 12px;
           flex-wrap: wrap;
+        }
+        .fixture-action-row {
+          align-items: center;
+        }
+        .fixture-button {
+          min-width: 150px;
         }
         .status-line {
           display: flex;
@@ -967,14 +1091,14 @@ export default function App() {
           color: #fde68a;
         }
         .content-wrap {
-          padding-top: 18px;
-          padding-bottom: 18px;
+          padding-top: 10px;
+          padding-bottom: 16px;
           min-height: 0;
         }
         .content-grid {
           display: grid;
-          grid-template-columns: minmax(430px, 1.05fr) minmax(360px, 0.95fr);
-          gap: 16px;
+          grid-template-columns: minmax(420px, 0.9fr) minmax(460px, 1.1fr);
+          gap: 12px;
           min-height: 0;
           height: 100%;
         }
@@ -985,7 +1109,7 @@ export default function App() {
           overflow: hidden;
         }
         .surface-header {
-          padding: 16px 18px 14px;
+          padding: 14px;
           border-bottom: 1px solid var(--line);
           display: flex;
           justify-content: space-between;
@@ -998,7 +1122,7 @@ export default function App() {
           font-weight: 600;
         }
         .surface-body {
-          padding: 18px;
+          padding: 14px;
           min-height: 0;
           overflow: auto;
         }
@@ -1007,21 +1131,9 @@ export default function App() {
           flex-direction: column;
           min-height: 0;
           border: 1px solid rgba(255,255,255,0.06);
-          border-radius: 18px;
+          border-radius: 6px;
           overflow: hidden;
           background: rgba(8,10,15,0.5);
-        }
-        .event-table-header {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 120px 94px 84px;
-          gap: 10px;
-          padding: 12px 14px;
-          font-size: 10px;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: var(--dim);
-          border-bottom: 1px solid rgba(255,255,255,0.05);
-          background: rgba(14,16,22,0.94);
         }
         .event-table-body {
           display: flex;
@@ -1031,7 +1143,7 @@ export default function App() {
         .event-row {
           width: 100%;
           text-align: left;
-          padding: 14px;
+          padding: 12px;
           border-radius: 0;
           border: 0;
           border-top: 1px solid rgba(255,255,255,0.05);
@@ -1043,7 +1155,7 @@ export default function App() {
           background: rgba(255,255,255,0.025);
         }
         .event-row.active {
-          background: linear-gradient(180deg, rgba(134,160,255,0.16), rgba(134,160,255,0.07));
+          background: rgba(61,98,217,0.12);
         }
         .event-row-top {
           display: flex;
@@ -1062,6 +1174,9 @@ export default function App() {
           gap: 8px;
           flex-wrap: wrap;
           align-items: center;
+          color: var(--text);
+          font-size: 13px;
+          font-weight: 700;
         }
         .event-row-subtitle {
           font-size: 12px;
@@ -1083,7 +1198,7 @@ export default function App() {
           justify-content: space-between;
           gap: 12px;
           align-items: center;
-          margin-top: 10px;
+          margin-top: 8px;
         }
         .event-preview {
           min-width: 0;
@@ -1103,8 +1218,8 @@ export default function App() {
           align-items: center;
           gap: 5px;
           border-radius: 999px;
-          padding: 5px 9px;
-          font-size: 11px;
+          padding: 4px 9px;
+          font-size: 10px;
           font-weight: 700;
           background: rgba(255,255,255,0.06);
           color: var(--text);
@@ -1132,13 +1247,13 @@ export default function App() {
         .inspector-tabs {
           display: flex;
           gap: 8px;
-          padding: 12px 18px 14px;
+          padding: 10px 14px;
           border-bottom: 1px solid var(--line);
-          background: rgba(13,15,21,0.88);
+          background: transparent;
         }
         .tab-button {
-          border-radius: 999px;
-          padding: 9px 12px;
+          border-radius: 6px;
+          padding: 7px 10px;
           border: 1px solid var(--line);
           cursor: pointer;
           color: var(--muted);
@@ -1150,9 +1265,9 @@ export default function App() {
         }
         .empty-state {
           border: 1px dashed rgba(255,255,255,0.12);
-          border-radius: 18px;
-          padding: 22px;
-          background: rgba(255,255,255,0.02);
+          border-radius: 6px;
+          padding: 16px;
+          background: transparent;
         }
         .empty-state h3 {
           margin: 0 0 8px;
@@ -1166,8 +1281,8 @@ export default function App() {
         }
         .code-block {
           margin: 0;
-          padding: 16px;
-          border-radius: 16px;
+          padding: 12px;
+          border-radius: 6px;
           border: 1px solid rgba(255,255,255,0.06);
           background: rgba(6,7,10,0.70);
           overflow: auto;
@@ -1181,24 +1296,55 @@ export default function App() {
         .meta-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
+          gap: 10px;
         }
         .inspector-card {
           position: relative;
         }
         .inspector-header {
-          background: rgba(15,17,23,0.88);
+          background: transparent;
         }
         .inspector-actions {
           align-items: center;
         }
         .inspector-body {
-          background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+          background: transparent;
         }
         .inspector-summary-strip {
           display: flex;
           gap: 8px;
           flex-wrap: wrap;
+        }
+        .diagnostic-note {
+          margin: 0;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          background: rgba(255,255,255,0.04);
+          color: var(--text);
+          font-size: 13px;
+          line-height: 1.5;
+          overflow-wrap: anywhere;
+        }
+        .diagnostic-note.success {
+          background: rgba(52,211,153,0.08);
+          border-color: rgba(52,211,153,0.18);
+          color: #d1fae5;
+        }
+        .diagnostic-note.warning {
+          background: rgba(251,191,36,0.08);
+          border-color: rgba(251,191,36,0.18);
+          color: #fef3c7;
+        }
+        .diagnostic-note.error {
+          background: rgba(251,113,133,0.10);
+          border-color: rgba(251,113,133,0.22);
+          color: #ffe4e6;
+        }
+        .diagnostic-note.info {
+          background: rgba(96,165,250,0.08);
+          border-color: rgba(96,165,250,0.18);
+          color: #dbeafe;
         }
         .inspector-section-stack {
           display: grid;
@@ -1212,14 +1358,14 @@ export default function App() {
           margin-bottom: 0;
         }
         .status-banner-stack {
-          padding: 12px 20px 0;
+          padding: 10px 16px 0;
           display: flex;
           flex-direction: column;
           gap: 10px;
         }
         .status-banner {
-          padding: 12px 14px;
-          border-radius: 14px;
+          padding: 9px 12px;
+          border-radius: 6px;
           border: 1px solid var(--line);
           font-size: 13px;
           line-height: 1.5;
@@ -1265,8 +1411,16 @@ export default function App() {
         }
         @media (max-width: 1180px) {
           .setup-grid,
+          .setup-strip,
           .content-grid {
             grid-template-columns: 1fr;
+          }
+          .setup-step {
+            border-right: 0;
+            border-bottom: 1px solid var(--line);
+          }
+          .setup-step:last-child {
+            border-bottom: 0;
           }
           .setup-hero {
             flex-direction: column;
@@ -1287,9 +1441,6 @@ export default function App() {
           }
           .main-shell {
             min-height: auto;
-          }
-          .event-table-header {
-            display: none;
           }
           .browser-search-row {
             grid-template-columns: 1fr;
@@ -1319,7 +1470,6 @@ export default function App() {
             serverEndpoints={serverEndpoints}
             localEndpoints={localEndpoints}
             sessionId={sessionId}
-            currentEndpoint={currentEndpoint}
             sessionsLoading={sessionsLoading}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
@@ -1347,11 +1497,20 @@ export default function App() {
               localWebhookUrl={localWebhookUrl}
               publicWebhookUrl={publicWebhookUrl}
               tunnelState={tunnelState}
+              provider={provider}
+              onProviderChange={setProvider}
+              razorpaySecret={razorpaySecret}
+              razorpaySecretConfigured={razorpaySecretConfigured}
+              onRazorpaySecretChange={setRazorpaySecret}
+              onClearRazorpaySecret={handleClearRazorpaySecret}
               forwardUrl={forwardUrl}
               forwardState={forwardState}
               onForwardUrlChange={setForwardUrl}
               onSaveForwardUrl={handleSaveForwardUrl}
-              onTriggerTest={sendTestWebhook}
+              fixtureOptions={razorpayFixtureOptions}
+              selectedFixtureKey={selectedFixtureKey}
+              onFixtureChange={setSelectedFixtureKey}
+              onTriggerTest={() => sendTestWebhook(selectedFixtureKey)}
               testState={testState}
               copiedLocal={copyState.local}
               copiedPublic={copyState.public}

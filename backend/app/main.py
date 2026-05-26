@@ -1,22 +1,27 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
-from contextlib import suppress
 from datetime import datetime
-from typing import Any, List
+from typing import List
 
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from . import models
 from .database import engine, get_db, Base
-from .schemas import GitHubWebhookStatusOut, WebhookEventOut, SessionConfigIn, SessionConfigOut
+from .forwarding_diagnostics import build_forward_diagnostics, build_replay_forward_payload
+from .razorpay_duplicates import find_duplicate_event_id_in_previous_events
+from .razorpay_fixtures import build_fixture_event_diagnostics, build_razorpay_fixture_request
+from .razorpay_metadata import RAZORPAY_METADATA_KEYS, extract_razorpay_metadata
+from .schemas import WebhookEventOut, SessionConfigIn, SessionConfigOut, RazorpayFixtureRequestOut
 
 Base.metadata.create_all(bind=engine)
 
@@ -34,20 +39,161 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
-GITHUB_API_BASE = "https://api.github.com"
-GITHUB_API_VERSION = "2022-11-28"
+PROVIDER_GENERIC = "generic"
+PROVIDER_RAZORPAY = "razorpay"
+RAZORPAY_EVENT_ID_HEADER = "x-razorpay-event-id"
+RAZORPAY_SIGNATURE_HEADER = "x-razorpay-signature"
 
 
-def parse_bool_env(value: str | None, default: bool) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+def ensure_session_config_columns() -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE session_configs "
+                "ADD COLUMN IF NOT EXISTS provider VARCHAR(32) DEFAULT 'generic' NOT NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE session_configs "
+                "ADD COLUMN IF NOT EXISTS razorpay_webhook_secret TEXT"
+            )
+        )
 
 
-def parse_csv_env(value: str | None, default: list[str]) -> list[str]:
-    if not value:
-        return default
-    return [item.strip() for item in value.split(",") if item.strip()]
+ensure_session_config_columns()
+
+
+def normalize_provider(provider: str | None) -> str:
+    if provider == PROVIDER_RAZORPAY:
+        return PROVIDER_RAZORPAY
+    return PROVIDER_GENERIC
+
+
+def get_header(headers: dict | None, name: str) -> str | None:
+    if not headers:
+        return None
+    expected = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == expected:
+            return str(value)
+    return None
+
+
+def parse_json_body(body: str | None) -> dict | None:
+    if not body:
+        return None
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def verify_razorpay_signature(body: str | None, signature: str | None, secret: str | None) -> tuple[str, str]:
+    if not secret:
+        return "missing_secret", "Razorpay webhook secret is not configured."
+    if not signature:
+        return "missing_signature", "X-Razorpay-Signature header is missing."
+
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        (body or "").encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if hmac.compare_digest(expected, signature):
+        return "valid", "Signature matches the configured Razorpay secret."
+    return "invalid", "Signature does not match the configured Razorpay secret."
+
+
+def find_duplicate_razorpay_event_id(
+    db: Session,
+    event: models.WebhookEvent,
+    provider_event_id: str | None,
+) -> int | None:
+    if not provider_event_id:
+        return None
+
+    previous_events = (
+        db.query(models.WebhookEvent)
+        .filter(
+            models.WebhookEvent.session_id == event.session_id,
+            models.WebhookEvent.id < event.id,
+        )
+        .order_by(models.WebhookEvent.id.asc())
+        .all()
+    )
+    return find_duplicate_event_id_in_previous_events(
+        previous_events,
+        provider_event_id,
+        RAZORPAY_EVENT_ID_HEADER,
+    )
+
+
+def build_razorpay_diagnostics(
+    event: models.WebhookEvent,
+    config: models.SessionConfig | None,
+    db: Session,
+) -> dict:
+    provider = normalize_provider(getattr(config, "provider", None))
+    diagnostics = {
+        "provider": provider,
+        "provider_event_id": None,
+        "signature_status": "not_applicable",
+        "signature_message": "Razorpay mode is not enabled for this endpoint.",
+        "duplicate_of_id": None,
+        **RAZORPAY_METADATA_KEYS,
+    }
+    if provider != PROVIDER_RAZORPAY:
+        return diagnostics
+
+    payload = parse_json_body(event.body)
+    metadata = extract_razorpay_metadata(payload)
+
+    provider_event_id = get_header(event.headers, RAZORPAY_EVENT_ID_HEADER)
+    signature = get_header(event.headers, RAZORPAY_SIGNATURE_HEADER)
+    secret = getattr(config, "razorpay_webhook_secret", None)
+    signature_status, signature_message = verify_razorpay_signature(event.body, signature, secret)
+
+    diagnostics.update(
+        {
+            **metadata,
+            "provider_event_id": provider_event_id,
+            "signature_status": signature_status,
+            "signature_message": signature_message,
+            "duplicate_of_id": find_duplicate_razorpay_event_id(db, event, provider_event_id),
+        }
+    )
+    return diagnostics
+
+
+def serialize_event(
+    event: models.WebhookEvent,
+    db: Session,
+    config: models.SessionConfig | None = None,
+) -> dict:
+    if config is None:
+        config = (
+            db.query(models.SessionConfig)
+            .filter(models.SessionConfig.session_id == event.session_id)
+            .first()
+        )
+    data = WebhookEventOut.model_validate(event).model_dump()
+    data.update(build_forward_diagnostics(event, forward_url_configured=bool(config and config.forward_url)))
+    data.update(build_razorpay_diagnostics(event, config, db))
+    data.update(build_fixture_event_diagnostics(event))
+    return jsonable_encoder(data)
+
+
+def serialize_session_config(config: models.SessionConfig | None, session_id: str) -> SessionConfigOut:
+    if not config:
+        return SessionConfigOut(session_id=session_id)
+    return SessionConfigOut(
+        session_id=config.session_id,
+        forward_url=config.forward_url,
+        provider=normalize_provider(config.provider),
+        razorpay_webhook_secret_configured=bool(config.razorpay_webhook_secret),
+    )
 
 
 def read_tunnel_url_file() -> str | None:
@@ -59,228 +205,6 @@ def read_tunnel_url_file() -> str | None:
         return None
 
 
-def load_github_webhook_config() -> dict[str, Any]:
-    token = os.getenv("GITHUB_WEBHOOK_TOKEN")
-    owner = os.getenv("GITHUB_WEBHOOK_OWNER")
-    repo = os.getenv("GITHUB_WEBHOOK_REPO")
-    secret = os.getenv("GITHUB_WEBHOOK_SECRET")
-    session_id = os.getenv("GITHUB_WEBHOOK_SESSION_ID", "github").strip() or "github"
-    events = parse_csv_env(os.getenv("GITHUB_WEBHOOK_EVENTS"), ["push", "ping"])
-    autoconfig = parse_bool_env(os.getenv("GITHUB_WEBHOOK_AUTOCONFIG"), True)
-    try:
-        poll_interval = max(5, int(os.getenv("GITHUB_WEBHOOK_POLL_INTERVAL_SECONDS", "10")))
-    except ValueError:
-        poll_interval = 10
-
-    configured = all([token, owner, repo, secret])
-    enabled = configured and autoconfig
-
-    return {
-        "token": token,
-        "owner": owner,
-        "repo": repo,
-        "secret": secret,
-        "session_id": session_id,
-        "events": events,
-        "autoconfig": autoconfig,
-        "configured": configured,
-        "enabled": enabled,
-        "poll_interval": poll_interval,
-    }
-
-
-def build_github_status_state(config: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "configured": config["configured"],
-        "enabled": config["enabled"],
-        "owner": config["owner"],
-        "repo": config["repo"],
-        "session_id": config["session_id"],
-        "events": config["events"],
-        "current_tunnel_url": None,
-        "desired_webhook_url": None,
-        "managed_hook_id": None,
-        "last_sync_status": "idle" if config["enabled"] else "disabled",
-        "last_sync_error": None,
-        "last_synced_at": None,
-        "last_successful_url": None,
-    }
-
-
-def github_request_headers(token: str) -> dict[str, str]:
-    return {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-    }
-
-
-def github_hook_matches_path(hook: dict[str, Any], session_id: str) -> bool:
-    config = hook.get("config") or {}
-    url = config.get("url")
-    if not isinstance(url, str):
-        return False
-    return url.rstrip("/").endswith(f"/api/hooks/{session_id}")
-
-
-def github_hook_matches_events(hook: dict[str, Any], expected_events: list[str]) -> bool:
-    hook_events = hook.get("events")
-    if not isinstance(hook_events, list):
-        return False
-    return set(hook_events) == set(expected_events)
-
-
-def select_managed_hook(candidates: list[dict[str, Any]], expected_events: list[str]) -> dict[str, Any] | None:
-    exact_matches = [hook for hook in candidates if github_hook_matches_events(hook, expected_events)]
-    pool = exact_matches or candidates
-    if not pool:
-        return None
-
-    return max(pool, key=lambda hook: hook.get("updated_at") or hook.get("created_at") or "")
-
-
-async def list_github_repo_webhooks(config: dict[str, Any]) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(
-            f"{GITHUB_API_BASE}/repos/{config['owner']}/{config['repo']}/hooks",
-            headers=github_request_headers(config["token"]),
-        )
-        response.raise_for_status()
-        return response.json()
-
-
-async def create_github_repo_webhook(config: dict[str, Any], webhook_url: str) -> dict[str, Any]:
-    payload = {
-        "name": "web",
-        "active": True,
-        "events": config["events"],
-        "config": {
-            "url": webhook_url,
-            "content_type": "json",
-            "secret": config["secret"],
-            "insecure_ssl": "0",
-        },
-    }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(
-            f"{GITHUB_API_BASE}/repos/{config['owner']}/{config['repo']}/hooks",
-            headers=github_request_headers(config["token"]),
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
-
-
-async def update_github_repo_webhook(config: dict[str, Any], hook_id: int, webhook_url: str) -> dict[str, Any]:
-    payload = {
-        "active": True,
-        "events": config["events"],
-        "config": {
-            "url": webhook_url,
-            "content_type": "json",
-            "secret": config["secret"],
-            "insecure_ssl": "0",
-        },
-    }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.patch(
-            f"{GITHUB_API_BASE}/repos/{config['owner']}/{config['repo']}/hooks/{hook_id}",
-            headers=github_request_headers(config["token"]),
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
-
-
-async def reconcile_github_webhook(app: FastAPI, force: bool = False) -> dict[str, Any]:
-    config = app.state.github_webhook_config
-    status = app.state.github_webhook_status
-
-    tunnel_url = read_tunnel_url_file()
-    desired_url = (
-        f"{tunnel_url.rstrip('/')}/api/hooks/{config['session_id']}"
-        if tunnel_url
-        else None
-    )
-
-    status["current_tunnel_url"] = tunnel_url
-    status["desired_webhook_url"] = desired_url
-
-    if not config["configured"]:
-        status["last_sync_status"] = "disabled"
-        status["last_sync_error"] = "GitHub webhook automation is not configured."
-        return status
-
-    if not config["enabled"]:
-        status["last_sync_status"] = "disabled"
-        status["last_sync_error"] = "GitHub webhook automation is disabled."
-        return status
-
-    if not desired_url:
-        status["last_sync_status"] = "idle"
-        status["last_sync_error"] = None
-        return status
-
-    if not force and status.get("last_successful_url") == desired_url:
-        status["last_sync_status"] = "success"
-        status["last_sync_error"] = None
-        return status
-
-    async with app.state.github_webhook_lock:
-        if not force and status.get("last_successful_url") == desired_url:
-            status["last_sync_status"] = "success"
-            status["last_sync_error"] = None
-            return status
-
-        try:
-            hooks = await list_github_repo_webhooks(config)
-            candidates = [
-                hook for hook in hooks
-                if github_hook_matches_path(hook, config["session_id"])
-            ]
-            managed_hook = select_managed_hook(candidates, config["events"])
-
-            if managed_hook and len(candidates) > 1:
-                print(
-                    f"[github-webhook-sync] multiple candidate hooks found for "
-                    f"{config['owner']}/{config['repo']} session {config['session_id']}; "
-                    f"updating hook {managed_hook.get('id')}"
-                )
-
-            if managed_hook:
-                hook_payload = await update_github_repo_webhook(
-                    config,
-                    managed_hook["id"],
-                    desired_url,
-                )
-            else:
-                hook_payload = await create_github_repo_webhook(config, desired_url)
-
-            status["managed_hook_id"] = hook_payload.get("id")
-            status["last_sync_status"] = "success"
-            status["last_sync_error"] = None
-            status["last_synced_at"] = datetime.utcnow()
-            status["last_successful_url"] = desired_url
-            return status
-        except httpx.HTTPStatusError as error:
-            message = f"GitHub API {error.response.status_code}: {error.response.text[:500]}"
-            status["last_sync_status"] = "error"
-            status["last_sync_error"] = message
-            status["last_synced_at"] = datetime.utcnow()
-            return status
-        except Exception as error:
-            status["last_sync_status"] = "error"
-            status["last_sync_error"] = str(error)[:500]
-            status["last_synced_at"] = datetime.utcnow()
-            return status
-
-
-async def github_webhook_reconciler(app: FastAPI):
-    while True:
-        await reconcile_github_webhook(app)
-        await asyncio.sleep(app.state.github_webhook_config["poll_interval"])
-
-
 # ─── App Lifespan ─────────────────────────────────────────────────────────────
 # Creates the Redis client once when the container starts.
 # Closes it cleanly when the container stops.
@@ -289,19 +213,7 @@ async def github_webhook_reconciler(app: FastAPI):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-    app.state.github_webhook_config = load_github_webhook_config()
-    app.state.github_webhook_status = build_github_status_state(app.state.github_webhook_config)
-    app.state.github_webhook_lock = asyncio.Lock()
-    github_sync_task = None
-
-    if app.state.github_webhook_config["enabled"]:
-        github_sync_task = asyncio.create_task(github_webhook_reconciler(app))
-
     yield
-    if github_sync_task:
-        github_sync_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await github_sync_task
     await app.state.redis.aclose()
 
 
@@ -376,15 +288,16 @@ async def receive_webhook(
     db.commit()
     db.refresh(event)
 
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+
     # Publish the saved event to Redis channel "webhook:<session_id>"
-    event_data = jsonable_encoder(WebhookEventOut.model_validate(event))
+    event_data = serialize_event(event, db, config)
     await request.app.state.redis.publish(
         f"webhook:{session_id}",
         json.dumps(event_data),
     )
 
     # Check if this session has a forwarding URL configured
-    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
     if config and config.forward_url:
         status, response, error = await forward_webhook(
             config.forward_url,
@@ -400,7 +313,7 @@ async def receive_webhook(
         db.refresh(event)
 
         # Re-publish with forwarding data so the dashboard updates
-        event_data = jsonable_encoder(WebhookEventOut.model_validate(event))
+        event_data = serialize_event(event, db, config)
         await request.app.state.redis.publish(
             f"webhook:{session_id}",
             json.dumps(event_data),
@@ -414,12 +327,14 @@ async def receive_webhook(
 
 @local_control_router.get("/hooks/{session_id}", response_model=List[WebhookEventOut])
 def get_webhooks(session_id: str, db: Session = Depends(get_db)):
-    return (
+    events = (
         db.query(models.WebhookEvent)
         .filter(models.WebhookEvent.session_id == session_id)
         .order_by(models.WebhookEvent.received_at.desc())
         .all()
     )
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    return [serialize_event(event, db, config) for event in events]
 
 
 # ─── DELETE /hooks/{session_id} ───────────────────────────────────────────────
@@ -473,12 +388,12 @@ async def replay_event(
         raise HTTPException(status_code=400, detail="No forwarding URL configured for this session")
 
     # Forward the original payload
-    raw_body = original.body.encode("utf-8") if original.body else b""
+    raw_body, replay_headers, replay_query_params = build_replay_forward_payload(original)
     status, response, error = await forward_webhook(
         config.forward_url,
         raw_body,
-        headers=original.headers if isinstance(original.headers, dict) else None,
-        query_params=original.query_params if isinstance(original.query_params, dict) else None,
+        headers=replay_headers,
+        query_params=replay_query_params,
     )
 
     # Create a new event record for the replay
@@ -498,7 +413,7 @@ async def replay_event(
     db.refresh(replay_event)
 
     # Publish to dashboard
-    event_data = jsonable_encoder(WebhookEventOut.model_validate(replay_event))
+    event_data = serialize_event(replay_event, db, config)
     await request.app.state.redis.publish(
         f"webhook:{session_id}",
         json.dumps(event_data),
@@ -597,18 +512,29 @@ def update_session_config(
     db: Session = Depends(get_db),
 ):
     config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    fields = config_in.model_fields_set
+
     if config:
-        config.forward_url = config_in.forward_url
+        if "forward_url" in fields:
+            config.forward_url = config_in.forward_url
+        if "provider" in fields and config_in.provider is not None:
+            config.provider = normalize_provider(config_in.provider)
+        if "razorpay_webhook_secret" in fields:
+            secret = (config_in.razorpay_webhook_secret or "").strip()
+            config.razorpay_webhook_secret = secret or None
         config.updated_at = datetime.utcnow()
     else:
+        secret = (config_in.razorpay_webhook_secret or "").strip()
         config = models.SessionConfig(
             session_id=session_id,
             forward_url=config_in.forward_url,
+            provider=normalize_provider(config_in.provider),
+            razorpay_webhook_secret=secret or None,
         )
         db.add(config)
     db.commit()
     db.refresh(config)
-    return config
+    return serialize_session_config(config, session_id)
 
 
 # ─── GET /sessions/{session_id}/config ────────────────────────────────────────
@@ -617,31 +543,27 @@ def update_session_config(
 @local_control_router.get("/sessions/{session_id}/config", response_model=SessionConfigOut)
 def get_session_config(session_id: str, db: Session = Depends(get_db)):
     config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
-    if not config:
-        return SessionConfigOut(session_id=session_id, forward_url=None)
-    return config
+    return serialize_session_config(config, session_id)
 
 
-@local_control_router.get("/integrations/github/status", response_model=GitHubWebhookStatusOut)
-def get_github_integration_status(request: Request):
-    status = dict(request.app.state.github_webhook_status)
-    tunnel_url = read_tunnel_url_file()
-    status["current_tunnel_url"] = tunnel_url
-    status["desired_webhook_url"] = (
-        f"{tunnel_url.rstrip('/')}/api/hooks/{status['session_id']}"
-        if tunnel_url
-        else None
-    )
-    status.pop("last_successful_url", None)
-    return status
+@local_control_router.post(
+    "/sessions/{session_id}/razorpay-fixtures/{fixture_key}",
+    response_model=RazorpayFixtureRequestOut,
+)
+def create_razorpay_fixture_request(
+    session_id: str,
+    fixture_key: str,
+    db: Session = Depends(get_db),
+):
+    config = db.query(models.SessionConfig).filter_by(session_id=session_id).first()
+    secret = None
+    if config and normalize_provider(config.provider) == PROVIDER_RAZORPAY:
+        secret = config.razorpay_webhook_secret
 
-
-@local_control_router.post("/integrations/github/reconcile", response_model=GitHubWebhookStatusOut)
-async def trigger_github_reconcile(request: Request):
-    status = await reconcile_github_webhook(request.app, force=True)
-    response = dict(status)
-    response.pop("last_successful_url", None)
-    return response
+    try:
+        return build_razorpay_fixture_request(fixture_key, secret)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown Razorpay fixture")
 
 
 # ─── GET /tunnel-url ──────────────────────────────────────────────────────────

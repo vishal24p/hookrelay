@@ -21,11 +21,8 @@ export function EventList({
     <section className="surface-card">
       <div className="surface-header">
         <div>
-          <div className="eyebrow">Incoming events</div>
-          <h3 className="surface-title" style={{ marginTop: 8 }}>{events.length} events captured</h3>
-          <p className="subtle-copy" style={{ marginTop: 8 }}>
-            Scan first. Inspect second. The feed should behave like a debugger list, not a gallery.
-          </p>
+          <div className="eyebrow">Events</div>
+          <h3 className="surface-title" style={{ marginTop: 8 }}>{events.length} captured</h3>
         </div>
         <button className="ghost-button" onClick={onRequestClear} disabled={clearState === 'loading' || events.length === 0}>
           {clearState === 'loading' ? 'Clearing...' : 'Clear Feed'}
@@ -42,15 +39,10 @@ export function EventList({
           <div className="empty-state">
             {endpointSource === 'server' ? (
               <>
-                <h3>No events yet for {endpointName}</h3>
+                <h3>No events yet</h3>
                 <p className="subtle-copy">
-                  This endpoint exists on the backend, but nothing has hit it yet.
+                  Send a fixture or point Razorpay at the public URL. Captured events appear here with signature and delivery status.
                 </p>
-                <ol>
-                  <li>Copy the public ingest URL if a third-party service needs to send a webhook.</li>
-                  <li>Set the forward target if you want HookRelay to hand payloads to your local app.</li>
-                  <li>Trigger a test event here before blaming the provider.</li>
-                </ol>
                 {!tunnelReady ? (
                   <p className="helper-note" style={{ marginTop: 14 }}>
                     The tunnel is not ready yet. Forwarding can still be configured now.
@@ -59,27 +51,15 @@ export function EventList({
               </>
             ) : (
               <>
-                <h3>{endpointName} is still a draft</h3>
+                <h3>No events yet</h3>
                 <p className="subtle-copy">
-                  The browser remembers this ID, but the backend has never persisted it.
+                  Send a fixture or point Razorpay at the public URL. Captured events appear here with signature and delivery status.
                 </p>
-                <ol>
-                  <li>Send a test event or point a provider at the public URL.</li>
-                  <li>The first real event will promote this draft into a saved endpoint.</li>
-                  <li>If you do not need it, forget it from the browser pane.</li>
-                </ol>
               </>
             )}
           </div>
         ) : (
           <div className="event-table">
-            <div className="event-table-header">
-              <span>Method</span>
-              <span>Status</span>
-              <span>Received</span>
-              <span>Size</span>
-            </div>
-
             <div className="event-table-body">
               {events.map((event) => {
                 const badge = getForwardBadge(event)
@@ -94,8 +74,9 @@ export function EventList({
                     <div className="event-row-top">
                       <div className="event-row-main">
                         <div className="event-row-title">
-                          <span className="pill method">{event.method}</span>
+                          <span>{event.provider_event_type || event.method}</span>
                           {event.method === 'REPLAY' ? <span className="pill replay">Replay</span> : null}
+                          {event.is_local_fixture ? <span className="pill warning">Local fixture</span> : null}
                           <span className={`pill ${badge.tone}`}>{badge.label}</span>
                         </div>
                         <div className="event-row-subtitle">Event #{event.id}</div>

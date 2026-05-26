@@ -27,5 +27,7 @@ class SessionConfig(Base):
 
     session_id  = Column(String(100), primary_key=True)
     forward_url = Column(Text, nullable=True)
+    provider    = Column(String(32), default="generic", nullable=False)
+    razorpay_webhook_secret = Column(Text, nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
     updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

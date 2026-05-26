@@ -73,3 +73,5 @@ tunnel_url.txt
 # ── Factory / AI tooling (not part of the project) ────────────────────────────
 .factory/
 .playwright-mcp/
+.codegraph/
+artifacts/
