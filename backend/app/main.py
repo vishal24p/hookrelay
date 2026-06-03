@@ -46,6 +46,9 @@ RAZORPAY_SIGNATURE_HEADER = "x-razorpay-signature"
 
 
 def ensure_session_config_columns() -> None:
+    if engine.dialect.name == "sqlite":
+        return
+
     with engine.begin() as connection:
         connection.execute(
             text(
