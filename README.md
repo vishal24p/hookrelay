@@ -36,8 +36,8 @@ HookRelay is a local webhook debugger for Razorpay development. It receives webh
 - Backend: FastAPI, SQLAlchemy, PostgreSQL, Redis
 - Frontend: React, Vite
 - Runtime: Docker Compose
-- Ingress: Cloudflare Tunnel, Nginx
-- Tests: Python `unittest`, npm lint and build
+- Ingress: cloudflared, Nginx
+- Checks: Python `unittest`, Vitest, ESLint, Vite build
 
 ## Quick Start
 
