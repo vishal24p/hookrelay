@@ -3,7 +3,7 @@
 ## Reporting a Vulnerability
 
 Please report suspected vulnerabilities by emailing
-security-contact@example.com. Do not open a public issue for security reports.
+vishal24.b.tech@gmail.com. Do not open a public issue for security reports.
 
 Include enough detail for maintainers to understand and reproduce the issue:
 
