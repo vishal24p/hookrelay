@@ -3,7 +3,9 @@ import hmac
 import json
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models
 from .forwarding_diagnostics import build_forward_diagnostics
@@ -16,6 +18,10 @@ PROVIDER_GENERIC = "generic"
 PROVIDER_RAZORPAY = "razorpay"
 RAZORPAY_EVENT_ID_HEADER = "x-razorpay-event-id"
 RAZORPAY_SIGNATURE_HEADER = "x-razorpay-signature"
+RAZORPAY_EVENT_ID_HEADER_CANDIDATES = (
+    RAZORPAY_EVENT_ID_HEADER,
+    "X-Razorpay-Event-Id",
+)
 
 
 def normalize_provider(provider: str | None) -> str:
@@ -60,34 +66,57 @@ def verify_razorpay_signature(body: str | None, signature: str | None, secret: s
     return "invalid", "Signature does not match the configured Razorpay secret."
 
 
-def find_duplicate_razorpay_event_id(
-    db: Session,
+async def find_duplicate_razorpay_event_id(
+    db: AsyncSession,
     event: models.WebhookEvent,
     provider_event_id: str | None,
 ) -> int | None:
     if not provider_event_id:
         return None
 
-    previous_events = (
-        db.query(models.WebhookEvent)
-        .filter(
-            models.WebhookEvent.session_id == event.session_id,
-            models.WebhookEvent.id < event.id,
+    if hasattr(event, "_duplicate_razorpay_event_id"):
+        return getattr(event, "_duplicate_razorpay_event_id")
+
+    try:
+        header_matches = [
+            models.WebhookEvent.headers[header_name].as_string() == provider_event_id
+            for header_name in RAZORPAY_EVENT_ID_HEADER_CANDIDATES
+        ]
+        result = await db.execute(
+            select(models.WebhookEvent.id)
+            .where(
+                models.WebhookEvent.session_id == event.session_id,
+                models.WebhookEvent.id < event.id,
+                or_(*header_matches),
+            )
+            .order_by(models.WebhookEvent.id.asc())
+            .limit(1)
         )
-        .order_by(models.WebhookEvent.id.asc())
-        .all()
-    )
-    return find_duplicate_event_id_in_previous_events(
-        previous_events,
-        provider_event_id,
-        RAZORPAY_EVENT_ID_HEADER,
-    )
+        duplicate_id = result.scalar()
+    except (AttributeError, SQLAlchemyError):
+        result = await db.execute(
+            select(models.WebhookEvent)
+            .where(
+                models.WebhookEvent.session_id == event.session_id,
+                models.WebhookEvent.id < event.id,
+            )
+            .order_by(models.WebhookEvent.id.asc())
+        )
+        previous_events = result.scalars().all()
+        duplicate_id = find_duplicate_event_id_in_previous_events(
+            previous_events,
+            provider_event_id,
+            RAZORPAY_EVENT_ID_HEADER,
+        )
+
+    setattr(event, "_duplicate_razorpay_event_id", duplicate_id)
+    return duplicate_id
 
 
-def build_razorpay_diagnostics(
+async def build_razorpay_diagnostics(
     event: models.WebhookEvent,
     config: models.SessionConfig | None,
-    db: Session,
+    db: AsyncSession,
 ) -> dict:
     provider = normalize_provider(getattr(config, "provider", None))
     diagnostics = {
@@ -115,25 +144,24 @@ def build_razorpay_diagnostics(
             "provider_event_id": provider_event_id,
             "signature_status": signature_status,
             "signature_message": signature_message,
-            "duplicate_of_id": find_duplicate_razorpay_event_id(db, event, provider_event_id),
+            "duplicate_of_id": await find_duplicate_razorpay_event_id(db, event, provider_event_id),
         }
     )
     return diagnostics
 
 
-def serialize_event(
+async def serialize_event(
     event: models.WebhookEvent,
-    db: Session,
+    db: AsyncSession,
     config: models.SessionConfig | None = None,
 ) -> dict:
     if config is None:
-        config = (
-            db.query(models.SessionConfig)
-            .filter(models.SessionConfig.session_id == event.session_id)
-            .first()
+        result = await db.execute(
+            select(models.SessionConfig).where(models.SessionConfig.session_id == event.session_id)
         )
+        config = result.scalar_one_or_none()
     data = WebhookEventOut.model_validate(event).model_dump()
     data.update(build_forward_diagnostics(event, forward_url_configured=bool(config and config.forward_url)))
-    data.update(build_razorpay_diagnostics(event, config, db))
+    data.update(await build_razorpay_diagnostics(event, config, db))
     data.update(build_fixture_event_diagnostics(event))
     return jsonable_encoder(data)

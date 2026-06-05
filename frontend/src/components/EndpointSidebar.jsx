@@ -156,7 +156,10 @@ export function EndpointSidebar({
           <div>
             <div className="eyebrow">Endpoints</div>
           </div>
-          <button className="primary-button compact-button" onClick={() => setCreateFormOpen((prev) => !prev)}>
+          <button
+            className="primary-button compact-button"
+            onClick={() => setCreateFormOpen((prev) => !prev)}
+          >
             {createFormOpen ? 'Close' : 'New'}
           </button>
         </div>
@@ -259,7 +262,8 @@ export function EndpointSidebar({
             </div>
           ) : null}
 
-          {(!showSaved || !filteredServerEndpoints.length) && (!showDrafts || !filteredLocalEndpoints.length) ? (
+          {(!showSaved || !filteredServerEndpoints.length) &&
+          (!showDrafts || !filteredLocalEndpoints.length) ? (
             <div className="browser-empty">No endpoints match this filter.</div>
           ) : null}
         </div>

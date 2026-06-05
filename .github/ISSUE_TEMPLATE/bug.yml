@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible HookRelay problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Keep the report focused on what broke and how to reproduce it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+      placeholder: The dashboard showed...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest set of steps that triggers the problem.
+      placeholder: |
+        1. Run docker compose up --build
+        2. Create a Razorpay endpoint
+        3. Send a test webhook
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant backend, frontend, Docker, or browser console output.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or commit SHA
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Docker Compose
+        - Local backend/frontend
+        - Other
+    validations:
+      required: true

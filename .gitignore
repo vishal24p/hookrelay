@@ -1,76 +1,58 @@
-# ── Python ────────────────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.pyo
 *.pyd
 .Python
-*.egg-info/
-dist/
-build/
-.eggs/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
 env/
-ENV/
-pip-log.txt
-pip-delete-this-directory.txt
-*.so
 
-# ── Node / Frontend ───────────────────────────────────────────────────────────
+# Node
 node_modules/
+frontend/node_modules/
 frontend/dist/
 frontend/.vite/
-.npm
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# ── Environment & Secrets ─────────────────────────────────────────────────────
+# Environment
 .env
-.env.local
-.env.*.local
-*.env
-.envrc
+.env.*
+!.env.example
+!.env.sample
 
-# ── Docker ────────────────────────────────────────────────────────────────────
-# Don't commit local Docker volumes or override files
+# Docker and local runtime
 docker-compose.override.yml
-.docker/
-
-# ── Tunnel data (runtime file, not source) ────────────────────────────────────
-tunnel/tunnel_url.txt
-
-# ── Database ──────────────────────────────────────────────────────────────────
+docker-compose.local.yml
+docker-compose.*.local.yml
+tunnel_url.txt
 *.db
+*.sqlite
 *.sqlite3
-postgres_data/
+*.db-journal
 
-# ── IDE & Editor ──────────────────────────────────────────────────────────────
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# OS and editors
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
 
-# ── OS ────────────────────────────────────────────────────────────────────────
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Desktop.ini
-
-# ── Logs ──────────────────────────────────────────────────────────────────────
-logs/
+# Logs
 *.log
-tunnel_url.txt
+logs/
 
-# ── Factory / AI tooling (not part of the project) ────────────────────────────
+# Local tooling artifacts
 .factory/
 .playwright-mcp/
 .codegraph/

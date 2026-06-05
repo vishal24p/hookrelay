@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, HttpUrl
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -16,8 +16,10 @@ class WebhookEventOut(BaseModel):
     forward_status:   Optional[int]   = None
     forward_response: Optional[str]   = None
     forward_error:    Optional[str]   = None
+    forward_failure_kind: Optional[str] = None
+    forward_delivery_status: Optional[str] = None
     forwarded_at:     Optional[datetime] = None
-    forward_delivery_status: str = "not_forwarded"
+    replay_target_event_id: Optional[int] = None
     forward_delivery_message: Optional[str] = None
 
     provider:            str = "generic"
@@ -38,9 +40,10 @@ class WebhookEventOut(BaseModel):
 
 
 class SessionConfigIn(BaseModel):
-    forward_url: Optional[str] = None
+    forward_url: Optional[HttpUrl] = None
     provider: Optional[str] = None
     razorpay_webhook_secret: Optional[str] = None
+    rotate_auth_token: bool = False
 
 
 class SessionConfigOut(BaseModel):
@@ -48,6 +51,9 @@ class SessionConfigOut(BaseModel):
     forward_url: Optional[str] = None
     provider: str = "generic"
     razorpay_webhook_secret_configured: bool = False
+    auth_token_configured: bool = False
+    auth_token: Optional[str] = None
+    forward_url_warnings: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

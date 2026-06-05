@@ -41,9 +41,13 @@ export function formatDateTime(value) {
 export function formatRelative(value) {
   if (!value) return 'No activity yet'
 
-  const diffMs = Date.now() - new Date(value).getTime()
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return 'Unknown time'
+
+  const diffMs = Date.now() - timestamp
+
   const seconds = Math.max(0, Math.floor(diffMs / 1000))
-  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 60) return seconds === 0 ? 'Just now' : `${seconds}s ago`
 
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}m ago`

@@ -11,6 +11,7 @@ export function SetupRail({
   onRazorpaySecretChange,
   onClearRazorpaySecret,
   forwardUrl,
+  forwardUrlWarnings = [],
   forwardState,
   onForwardUrlChange,
   onSaveForwardUrl,
@@ -54,12 +55,14 @@ export function SetupRail({
       <div className="setup-strip">
         <section className="setup-step">
           <div className="step-label">1 Public URL</div>
-          <p className="setup-primary mono-text">
-            {publicWebhookUrl || 'Tunnel pending'}
-          </p>
+          <p className="setup-primary mono-text">{publicWebhookUrl || 'Tunnel pending'}</p>
           <p className="setup-secondary mono-text">Local: {localWebhookUrl}</p>
           <div className="setup-actions">
-            <button className="secondary-button compact-button" onClick={onCopyPublic} disabled={!publicWebhookUrl}>
+            <button
+              className="secondary-button compact-button"
+              onClick={onCopyPublic}
+              disabled={!publicWebhookUrl}
+            >
               {copiedPublic ? 'Copied' : 'Copy URL'}
             </button>
             <button className="ghost-button compact-button" onClick={onCopyLocal}>
@@ -114,21 +117,40 @@ export function SetupRail({
             className="text-input compact-input mono-text"
             value={forwardUrl}
             onChange={(event) => onForwardUrlChange(event.target.value)}
-            placeholder="http://host.docker.internal:3000/webhooks/razorpay"
+            placeholder="http://192.168.1.42:3000/webhooks/razorpay (or host.docker.internal on Docker Desktop)"
           />
+          {forwardUrlWarnings.length > 0 ? (
+            <div className="setup-warning-list" role="status" aria-live="polite">
+              {forwardUrlWarnings.map((warning) => (
+                <p key={warning} className="setup-secondary">
+                  {warning}
+                </p>
+              ))}
+            </div>
+          ) : null}
           <div className="setup-actions">
-            <button className="secondary-button compact-button" onClick={onSaveForwardUrl} disabled={forwardState === 'saving'}>
-              {forwardState === 'saving' ? 'Saving...' : forwardState === 'saved' ? 'Saved' : 'Save'}
-            </button>
-            <span className={`status-chip ${
-              forwardState === 'error'
-                ? 'error'
+            <button
+              className="secondary-button compact-button"
+              onClick={onSaveForwardUrl}
+              disabled={forwardState === 'saving'}
+            >
+              {forwardState === 'saving'
+                ? 'Saving...'
                 : forwardState === 'saved'
-                  ? 'ready'
-                  : forwardState === 'loading'
-                    ? 'info'
-                    : 'warning'
-            }`}>
+                  ? 'Saved'
+                  : 'Save'}
+            </button>
+            <span
+              className={`status-chip ${
+                forwardState === 'error'
+                  ? 'error'
+                  : forwardState === 'saved'
+                    ? 'ready'
+                    : forwardState === 'loading'
+                      ? 'info'
+                      : 'warning'
+              }`}
+            >
               {forwardUrl ? 'Configured' : 'Not set'}
             </span>
           </div>
@@ -143,29 +165,39 @@ export function SetupRail({
               onChange={(event) => onFixtureChange(event.target.value)}
             >
               {fixtureOptions.map((fixture) => (
-                <option key={fixture.key} value={fixture.key}>{fixture.label}</option>
+                <option key={fixture.key} value={fixture.key}>
+                  {fixture.label}
+                </option>
               ))}
             </select>
           ) : (
             <p className="setup-secondary">Generic test payload.</p>
           )}
           <div className="setup-actions">
-            <button className="primary-button compact-button" onClick={onTriggerTest} disabled={testState === 'loading'}>
+            <button
+              className="primary-button compact-button"
+              onClick={onTriggerTest}
+              disabled={testState === 'loading'}
+            >
               {testState === 'loading'
                 ? 'Sending...'
                 : testState === 'success'
                   ? 'Sent'
-                  : provider === 'razorpay' ? 'Send fixture' : 'Send test'}
+                  : provider === 'razorpay'
+                    ? 'Send fixture'
+                    : 'Send test'}
             </button>
-            <span className={`status-chip ${
-              testState === 'success'
-                ? 'ready'
-                : testState === 'error'
-                  ? 'error'
-                  : testState === 'loading'
-                    ? 'info'
-                    : 'warning'
-            }`}>
+            <span
+              className={`status-chip ${
+                testState === 'success'
+                  ? 'ready'
+                  : testState === 'error'
+                    ? 'error'
+                    : testState === 'loading'
+                      ? 'info'
+                      : 'warning'
+              }`}
+            >
               {testState === 'success' ? 'Delivered' : testState === 'error' ? 'Failed' : 'Ready'}
             </span>
           </div>

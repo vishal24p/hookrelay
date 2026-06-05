@@ -13,7 +13,6 @@ export function EventList({
   loadingHistory,
   clearState,
   onRequestClear,
-  endpointName,
   endpointSource,
   tunnelReady,
 }) {
@@ -22,9 +21,15 @@ export function EventList({
       <div className="surface-header">
         <div>
           <div className="eyebrow">Events</div>
-          <h3 className="surface-title" style={{ marginTop: 8 }}>{events.length} captured</h3>
+          <h3 className="surface-title" style={{ marginTop: 8 }}>
+            {events.length} captured
+          </h3>
         </div>
-        <button className="ghost-button" onClick={onRequestClear} disabled={clearState === 'loading' || events.length === 0}>
+        <button
+          className="ghost-button"
+          onClick={onRequestClear}
+          disabled={clearState === 'loading' || events.length === 0}
+        >
           {clearState === 'loading' ? 'Clearing...' : 'Clear Feed'}
         </button>
       </div>
@@ -41,7 +46,8 @@ export function EventList({
               <>
                 <h3>No events yet</h3>
                 <p className="subtle-copy">
-                  Send a fixture or point Razorpay at the public URL. Captured events appear here with signature and delivery status.
+                  Send a fixture or point Razorpay at the public URL. Captured events appear here
+                  with signature and delivery status.
                 </p>
                 {!tunnelReady ? (
                   <p className="helper-note" style={{ marginTop: 14 }}>
@@ -53,7 +59,8 @@ export function EventList({
               <>
                 <h3>No events yet</h3>
                 <p className="subtle-copy">
-                  Send a fixture or point Razorpay at the public URL. Captured events appear here with signature and delivery status.
+                  Send a fixture or point Razorpay at the public URL. Captured events appear here
+                  with signature and delivery status.
                 </p>
               </>
             )}
@@ -75,8 +82,12 @@ export function EventList({
                       <div className="event-row-main">
                         <div className="event-row-title">
                           <span>{event.provider_event_type || event.method}</span>
-                          {event.method === 'REPLAY' ? <span className="pill replay">Replay</span> : null}
-                          {event.is_local_fixture ? <span className="pill warning">Local fixture</span> : null}
+                          {event.method === 'REPLAY' ? (
+                            <span className="pill replay">Replay</span>
+                          ) : null}
+                          {event.is_local_fixture ? (
+                            <span className="pill warning">Local fixture</span>
+                          ) : null}
                           <span className={`pill ${badge.tone}`}>{badge.label}</span>
                         </div>
                         <div className="event-row-subtitle">Event #{event.id}</div>

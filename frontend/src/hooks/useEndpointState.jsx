@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  generateSessionId,
-  getErrorMessage,
-  getSessionFromUrl,
-  readJson,
-} from '../ui.js'
+import { generateSessionId, getErrorMessage, getSessionFromUrl, readJson } from '../ui.js'
 
 const HISTORY_KEY = 'hookrelay_history'
 const LABELS_KEY = 'hookrelay_endpoint_labels'
@@ -19,7 +14,22 @@ function readStorage(key, fallback) {
 }
 
 function writeStorage(key, value) {
-  localStorage.setItem(key, JSON.stringify(value))
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+    return { ok: true, error: null }
+  } catch (error) {
+    return { ok: false, error }
+  }
+}
+
+function parseStorageValue(raw) {
+  if (!raw) return null
+
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
 }
 
 function uniqueIds(ids) {
@@ -39,7 +49,9 @@ export function useEndpointState({ controlApiBase }) {
     const fromUrl = getSessionFromUrl()
     if (fromUrl) return fromUrl
     const next = generateSessionId()
-    window.location.hash = next
+    if (typeof window !== 'undefined') {
+      window.location.hash = next
+    }
     return next
   })
   const [history, setHistory] = useState(() => readStorage(HISTORY_KEY, []))
@@ -52,13 +64,19 @@ export function useEndpointState({ controlApiBase }) {
   const [createFormOpen, setCreateFormOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createId, setCreateId] = useState('')
+  const [storageError, setStorageError] = useState(null)
+
+  const persistStorage = useCallback((key, value) => {
+    const result = writeStorage(key, value)
+    if (!result.ok) {
+      setStorageError({ key, error: result.error })
+      return
+    }
+    setStorageError((prev) => (prev?.key === key ? null : prev))
+  }, [])
 
   const rememberSession = useCallback((nextId) => {
-    setHistory((prev) => {
-      const next = uniqueIds([nextId, ...prev]).slice(0, 50)
-      writeStorage(HISTORY_KEY, next)
-      return next
-    })
+    setHistory((prev) => uniqueIds([nextId, ...prev]).slice(0, 50))
   }, [])
 
   const saveLabel = useCallback((nextId, nextName) => {
@@ -70,40 +88,40 @@ export function useEndpointState({ controlApiBase }) {
       } else {
         next[nextId] = cleanName
       }
-      writeStorage(LABELS_KEY, next)
       return next
     })
   }, [])
 
-  const switchEndpoint = useCallback((nextId) => {
-    const clean = nextId.trim()
-    if (!clean) return
-    window.location.hash = clean
-    setSessionId(clean)
-    rememberSession(clean)
-    setSearchQuery('')
-  }, [rememberSession])
+  const switchEndpoint = useCallback(
+    (nextId) => {
+      const clean = nextId.trim()
+      if (!clean) return
+      window.location.hash = clean
+      setSessionId(clean)
+      rememberSession(clean)
+      setSearchQuery('')
+    },
+    [rememberSession],
+  )
 
-  const createEndpoint = useCallback((fallbackName = '', forcedId = '') => {
-    const endpointId = forcedId.trim() || createId.trim() || generateSessionId()
-    const endpointName = createName.trim() || fallbackName || endpointId
-    saveLabel(endpointId, endpointName)
-    switchEndpoint(endpointId)
-    setCreateName('')
-    setCreateId('')
-  }, [createId, createName, saveLabel, switchEndpoint])
+  const createEndpoint = useCallback(
+    (fallbackName = '', forcedId = '') => {
+      const endpointId = forcedId.trim() || createId.trim() || generateSessionId()
+      const endpointName = createName.trim() || fallbackName || endpointId
+      saveLabel(endpointId, endpointName)
+      switchEndpoint(endpointId)
+      setCreateName('')
+      setCreateId('')
+    },
+    [createId, createName, saveLabel, switchEndpoint],
+  )
 
   const deleteEndpointLocal = useCallback((endpointId) => {
     setBackendSessions((prev) => prev.filter((id) => id !== endpointId))
-    setHistory((prev) => {
-      const next = prev.filter((id) => id !== endpointId)
-      writeStorage(HISTORY_KEY, next)
-      return next
-    })
+    setHistory((prev) => prev.filter((id) => id !== endpointId))
     setLabels((prev) => {
       const next = { ...prev }
       delete next[endpointId]
-      writeStorage(LABELS_KEY, next)
       return next
     })
     setSessionSummaries((prev) => {
@@ -125,6 +143,18 @@ export function useEndpointState({ controlApiBase }) {
 
   useEffect(() => {
     rememberSession(sessionId)
+  }, [rememberSession, sessionId])
+
+  useEffect(() => {
+    persistStorage(HISTORY_KEY, history)
+  }, [history, persistStorage])
+
+  useEffect(() => {
+    persistStorage(LABELS_KEY, labels)
+  }, [labels, persistStorage])
+
+  const clearStorageError = useCallback(() => {
+    setStorageError(null)
   }, [])
 
   useEffect(() => {
@@ -138,15 +168,17 @@ export function useEndpointState({ controlApiBase }) {
 
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
-  }, [sessionId])
+  }, [rememberSession, sessionId])
 
   useEffect(() => {
     function onStorage(event) {
       if (event.key === HISTORY_KEY && event.newValue) {
-        setHistory(JSON.parse(event.newValue))
+        const nextHistory = parseStorageValue(event.newValue)
+        if (nextHistory) setHistory(nextHistory)
       }
       if (event.key === LABELS_KEY && event.newValue) {
-        setLabels(JSON.parse(event.newValue))
+        const nextLabels = parseStorageValue(event.newValue)
+        if (nextLabels) setLabels(nextLabels)
       }
     }
 
@@ -204,13 +236,19 @@ export function useEndpointState({ controlApiBase }) {
               },
             ]
           } catch {
-            return [id, sessionSummaries[id] || { count: 0, lastActivity: null }]
+            return [id, null]
           }
         }),
       )
 
       if (!cancelled) {
-        setSessionSummaries((prev) => ({ ...prev, ...Object.fromEntries(entries) }))
+        setSessionSummaries((prev) => {
+          const next = { ...prev }
+          for (const [id, summary] of entries) {
+            next[id] = summary || prev[id] || { count: 0, lastActivity: null }
+          }
+          return next
+        })
       }
     }
 
@@ -218,7 +256,7 @@ export function useEndpointState({ controlApiBase }) {
     return () => {
       cancelled = true
     }
-  }, [controlApiBase, knownIds.join('|')])
+  }, [controlApiBase, knownIds])
 
   const allEndpoints = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -240,8 +278,7 @@ export function useEndpointState({ controlApiBase }) {
       .filter((endpoint) => {
         if (!query) return true
         return (
-          endpoint.name.toLowerCase().includes(query) ||
-          endpoint.id.toLowerCase().includes(query)
+          endpoint.name.toLowerCase().includes(query) || endpoint.id.toLowerCase().includes(query)
         )
       })
       .sort(sortEndpoints)
@@ -258,14 +295,15 @@ export function useEndpointState({ controlApiBase }) {
   )
 
   const currentEndpoint = useMemo(
-    () => allEndpoints.find((endpoint) => endpoint.id === sessionId) || {
-      id: sessionId,
-      name: labels[sessionId] || sessionId,
-      count: sessionSummaries[sessionId]?.count || 0,
-      lastActivity: sessionSummaries[sessionId]?.lastActivity || null,
-      isCurrent: true,
-      source: 'current_unsaved',
-    },
+    () =>
+      allEndpoints.find((endpoint) => endpoint.id === sessionId) || {
+        id: sessionId,
+        name: labels[sessionId] || sessionId,
+        count: sessionSummaries[sessionId]?.count || 0,
+        lastActivity: sessionSummaries[sessionId]?.lastActivity || null,
+        isCurrent: true,
+        source: 'current_unsaved',
+      },
     [allEndpoints, labels, sessionId, sessionSummaries],
   )
 
@@ -289,5 +327,7 @@ export function useEndpointState({ controlApiBase }) {
     createEndpoint,
     deleteEndpointLocal,
     syncCurrentSummary,
+    storageError,
+    clearStorageError,
   }
 }

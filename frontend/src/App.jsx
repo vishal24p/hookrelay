@@ -7,6 +7,7 @@ import { SetupRail } from './components/SetupRail.jsx'
 import { StatusBanner } from './components/StatusBanner.jsx'
 import { useEndpointState } from './hooks/useEndpointState.jsx'
 import { useEventStream } from './hooks/useEventStream.jsx'
+import { useNowTick } from './hooks/useNowTick.js'
 import {
   codeFontStack,
   copyText,
@@ -16,14 +17,76 @@ import {
   uiFontStack,
 } from './ui.js'
 
-export default function App() {
+const AUTH_TOKEN_STORAGE_PREFIX = 'hookrelay.authToken.'
+
+function getAuthTokenStorageKey(sessionId) {
+  return `${AUTH_TOKEN_STORAGE_PREFIX}${sessionId}`
+}
+
+function readStoredAuthToken(sessionId) {
+  if (!sessionId || typeof window === 'undefined') return ''
+  try {
+    const storage = window.localStorage
+    return storage.getItem(getAuthTokenStorageKey(sessionId)) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeStoredAuthToken(sessionId, authToken) {
+  if (!sessionId || !authToken || typeof window === 'undefined') return
+  try {
+    const storage = window.localStorage
+    storage.setItem(getAuthTokenStorageKey(sessionId), authToken)
+  } catch {
+    // Storage is best-effort; in-memory auth still works for this tab.
+  }
+}
+
+function removeStoredAuthToken(sessionId) {
+  if (!sessionId || typeof window === 'undefined') return
+  try {
+    const storage = window.localStorage
+    storage.removeItem(getAuthTokenStorageKey(sessionId))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function buildAuthHeaders(authToken, headers = {}) {
+  return authToken ? { ...headers, Authorization: `Bearer ${authToken}` } : headers
+}
+
+function trimTrailingSlash(value) {
+  return String(value || '').replace(/\/+$/, '')
+}
+
+function getDefaultControlApiBase() {
   const localOrigin = window.location.origin
-  const controlOrigin =
-    window.location.port === '5173'
-      ? `${window.location.protocol}//${window.location.hostname}`
-      : localOrigin
-  const controlApiBase = `${controlOrigin}/api`
-  const websocketOrigin = new URL(controlOrigin)
+  if (window.location.port === '5173') {
+    return `${window.location.protocol}//${window.location.hostname}/api`
+  }
+  return `${localOrigin}/api`
+}
+
+function getConfiguredControlApiBase() {
+  const configuredApiBase = import.meta.env.VITE_API_BASE?.trim()
+  return trimTrailingSlash(configuredApiBase || getDefaultControlApiBase())
+}
+
+function getWebsocketOrigin(controlApiBase) {
+  try {
+    return new URL(controlApiBase, window.location.origin)
+  } catch {
+    return new URL(window.location.origin)
+  }
+}
+
+export default function App() {
+  useNowTick(30000)
+
+  const controlApiBase = useMemo(() => getConfiguredControlApiBase(), [])
+  const websocketOrigin = useMemo(() => getWebsocketOrigin(controlApiBase), [controlApiBase])
 
   const {
     sessionId,
@@ -44,12 +107,36 @@ export default function App() {
     createEndpoint,
     deleteEndpointLocal,
     syncCurrentSummary,
+    storageError,
+    clearStorageError,
   } = useEndpointState({ controlApiBase })
 
   const [provider, setProvider] = useState('razorpay')
   const [razorpaySecret, setRazorpaySecret] = useState('')
   const [razorpaySecretConfigured, setRazorpaySecretConfigured] = useState(false)
   const [selectedFixtureKey, setSelectedFixtureKey] = useState('payment_captured')
+  const [authTokens, setAuthTokens] = useState({})
+  const authToken = useMemo(
+    () => (sessionId ? authTokens[sessionId] || readStoredAuthToken(sessionId) : ''),
+    [authTokens, sessionId],
+  )
+
+  function rememberAuthToken(endpointId, token) {
+    if (!endpointId || !token) return
+    writeStoredAuthToken(endpointId, token)
+    setAuthTokens((prev) => (prev[endpointId] === token ? prev : { ...prev, [endpointId]: token }))
+  }
+
+  function forgetAuthToken(endpointId) {
+    if (!endpointId) return
+    removeStoredAuthToken(endpointId)
+    setAuthTokens((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, endpointId)) return prev
+      const next = { ...prev }
+      delete next[endpointId]
+      return next
+    })
+  }
 
   const {
     events,
@@ -64,6 +151,8 @@ export default function App() {
     replayState,
     actionError,
     clearActionError,
+    reconnectAttempts,
+    reconnect,
     sendTestWebhook,
     clearSession,
     replayEvent,
@@ -73,6 +162,7 @@ export default function App() {
     controlApiBase,
     websocketOrigin,
     provider,
+    authToken,
   })
 
   const [copyState, setCopyState] = useState({
@@ -86,6 +176,7 @@ export default function App() {
     message: 'Checking for a public ingest URL.',
   })
   const [forwardUrl, setForwardUrl] = useState('')
+  const [forwardUrlWarnings, setForwardUrlWarnings] = useState([])
   const [forwardState, setForwardState] = useState('loading')
   const [forwardError, setForwardError] = useState('')
   const [inspectorTab, setInspectorTab] = useState('body')
@@ -157,9 +248,14 @@ export default function App() {
       setForwardState('loading')
       setForwardError('')
       try {
-        const data = await readJson(await fetch(`${controlApiBase}/sessions/${sessionId}/config`))
+        const data = await readJson(
+          await fetch(`${controlApiBase}/sessions/${sessionId}/config`, {
+            headers: buildAuthHeaders(authToken),
+          }),
+        )
         if (cancelled) return
         setForwardUrl(data?.forward_url || '')
+        setForwardUrlWarnings(data?.forward_url_warnings || [])
         setProvider(data?.provider === 'generic' && data?.forward_url ? 'generic' : 'razorpay')
         setRazorpaySecret('')
         setRazorpaySecretConfigured(Boolean(data?.razorpay_webhook_secret_configured))
@@ -167,11 +263,14 @@ export default function App() {
       } catch (error) {
         if (cancelled) return
         setForwardUrl('')
+        setForwardUrlWarnings([])
         setProvider('razorpay')
         setRazorpaySecret('')
         setRazorpaySecretConfigured(false)
         setForwardState('error')
-        setForwardError(getErrorMessage(error, 'Unable to load the forward target for this endpoint.'))
+        setForwardError(
+          getErrorMessage(error, 'Unable to load the forward target for this endpoint.'),
+        )
       }
     }
 
@@ -179,7 +278,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [controlApiBase, sessionId])
+  }, [authToken, controlApiBase, sessionId])
 
   useEffect(() => {
     const img = new Image()
@@ -217,7 +316,9 @@ export default function App() {
     if (kind === 'endpointId') {
       setCopyState((prev) => ({ ...prev, endpointId }))
       window.setTimeout(() => {
-        setCopyState((prev) => (prev.endpointId === endpointId ? { ...prev, endpointId: null } : prev))
+        setCopyState((prev) =>
+          prev.endpointId === endpointId ? { ...prev, endpointId: null } : prev,
+        )
       }, 1800)
       return
     }
@@ -244,12 +345,16 @@ export default function App() {
 
       const response = await fetch(`${controlApiBase}/sessions/${sessionId}/config`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders(authToken, { 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),
       })
 
       const data = await readJson(response)
+      if (data?.auth_token) {
+        rememberAuthToken(sessionId, data.auth_token)
+      }
       setForwardUrl(data?.forward_url || '')
+      setForwardUrlWarnings(data?.forward_url_warnings || [])
       setProvider(data?.provider === 'razorpay' ? 'razorpay' : 'generic')
       setRazorpaySecret('')
       setRazorpaySecretConfigured(Boolean(data?.razorpay_webhook_secret_configured))
@@ -269,7 +374,7 @@ export default function App() {
     try {
       const response = await fetch(`${controlApiBase}/sessions/${sessionId}/config`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders(authToken, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           forward_url: forwardUrl || null,
           provider,
@@ -278,7 +383,11 @@ export default function App() {
       })
 
       const data = await readJson(response)
+      if (data?.auth_token) {
+        rememberAuthToken(sessionId, data.auth_token)
+      }
       setForwardUrl(data?.forward_url || '')
+      setForwardUrlWarnings(data?.forward_url_warnings || [])
       setProvider(data?.provider === 'razorpay' ? 'razorpay' : 'generic')
       setRazorpaySecret('')
       setRazorpaySecretConfigured(Boolean(data?.razorpay_webhook_secret_configured))
@@ -307,11 +416,16 @@ export default function App() {
     setDeleteState({ id: endpointId, error: '' })
 
     try {
-      const response = await fetch(`${controlApiBase}/sessions/${endpointId}`, { method: 'DELETE' })
+      const endpointAuthToken = authTokens[endpointId] || readStoredAuthToken(endpointId)
+      const response = await fetch(`${controlApiBase}/sessions/${endpointId}`, {
+        method: 'DELETE',
+        headers: buildAuthHeaders(endpointAuthToken),
+      })
       if (!response.ok) {
         throw new Error(`Delete failed with status ${response.status}.`)
       }
 
+      forgetAuthToken(endpointId)
       deleteEndpointLocal(endpointId)
       if (endpointId === sessionId) {
         createEndpoint('Recovered endpoint')
@@ -354,6 +468,21 @@ export default function App() {
             : 'Live event stream disconnected. HookRelay is retrying automatically.',
       })
     }
+    if (socketState === 'disconnected' && reconnectAttempts >= 10) {
+      items.push({
+        tone: 'warning',
+        message: 'Live stream offline after repeated reconnect attempts.',
+        action: { label: 'Reconnect', onClick: reconnect },
+      })
+    }
+    if (storageError) {
+      items.push({
+        tone: 'warning',
+        message:
+          'Local browser storage is full or unavailable. Endpoint labels and history are not being saved.',
+        action: { label: 'Dismiss', onClick: clearStorageError },
+      })
+    }
     if (sessionsError) {
       items.push({ tone: 'error', message: sessionsError })
     }
@@ -371,7 +500,20 @@ export default function App() {
     }
 
     return items
-  }, [actionError, deleteState.error, forwardError, forwardState, historyError, sessionsError, socketState, tunnelState])
+  }, [
+    actionError,
+    deleteState.error,
+    forwardError,
+    forwardState,
+    historyError,
+    reconnect,
+    reconnectAttempts,
+    sessionsError,
+    socketState,
+    storageError,
+    clearStorageError,
+    tunnelState,
+  ])
 
   return (
     <>
@@ -1396,6 +1538,8 @@ export default function App() {
           backdrop-filter: blur(10px);
         }
         .modal-card {
+          position: relative;
+          z-index: 1;
           width: min(480px, 100%);
           border-radius: 22px;
           border: 1px solid var(--line);
@@ -1403,11 +1547,28 @@ export default function App() {
           box-shadow: var(--shadow);
           overflow: hidden;
         }
+        .modal-backdrop-dismiss {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          cursor: default;
+        }
         .modal-section {
           padding: 20px 22px;
         }
         .modal-section + .modal-section {
           border-top: 1px solid var(--line);
+        }
+        .confirmation-field {
+          display: grid;
+          gap: 8px;
+          margin-top: 16px;
+        }
+        .confirmation-label {
+          color: var(--text);
+          font-size: 13px;
+          font-weight: 600;
         }
         @media (max-width: 1180px) {
           .setup-grid,
@@ -1481,7 +1642,9 @@ export default function App() {
             setCreateId={setCreateId}
             onCreateEndpoint={handleCreateEndpoint}
             onSelectEndpoint={switchEndpoint}
-            onRequestDelete={(endpointId) => setConfirmState({ kind: 'delete-endpoint', endpointId })}
+            onRequestDelete={(endpointId) =>
+              setConfirmState({ kind: 'delete-endpoint', endpointId })
+            }
             onForgetLocal={handleForgetLocal}
             onCopyEndpointId={(endpointId) => handleCopy('endpointId', endpointId, endpointId)}
             copiedEndpointId={copyState.endpointId}
@@ -1504,6 +1667,7 @@ export default function App() {
               onRazorpaySecretChange={setRazorpaySecret}
               onClearRazorpaySecret={handleClearRazorpaySecret}
               forwardUrl={forwardUrl}
+              forwardUrlWarnings={forwardUrlWarnings}
               forwardState={forwardState}
               onForwardUrlChange={setForwardUrl}
               onSaveForwardUrl={handleSaveForwardUrl}
@@ -1562,12 +1726,20 @@ export default function App() {
         }
         confirmLabel={
           confirmState?.kind === 'delete-endpoint'
-            ? deleteState.id ? 'Deleting…' : 'Delete endpoint'
-            : clearState === 'loading' ? 'Clearing…' : 'Clear feed'
+            ? deleteState.id
+              ? 'Deleting…'
+              : 'Delete endpoint'
+            : clearState === 'loading'
+              ? 'Clearing…'
+              : 'Clear feed'
         }
         confirmTone={confirmState?.kind === 'delete-endpoint' ? 'danger' : 'secondary'}
+        confirmationValue={confirmState?.kind === 'delete-endpoint' ? confirmState.endpointId : ''}
+        confirmationLabel="Endpoint ID"
         onClose={() => setConfirmState(null)}
-        onConfirm={confirmState?.kind === 'delete-endpoint' ? handleConfirmDelete : handleConfirmClear}
+        onConfirm={
+          confirmState?.kind === 'delete-endpoint' ? handleConfirmDelete : handleConfirmClear
+        }
         disabled={Boolean(deleteState.id) || clearState === 'loading'}
       />
     </>

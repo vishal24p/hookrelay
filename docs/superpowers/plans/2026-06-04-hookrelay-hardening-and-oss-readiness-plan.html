@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HookRelay Hardening and OSS Readiness Plan — 2026-06-04</title>
+<style>
+:root {
+  --bg: #0f1115;
+  --surface: #161a22;
+  --surface-2: #1d222c;
+  --border: #2a3140;
+  --text: #e6e8ec;
+  --text-dim: #9aa3b2;
+  --text-mute: #6b7280;
+  --accent: #7aa2f7;
+  --accent-2: #9ece6a;
+  --warn: #e0af68;
+  --crit: #f7768e;
+  --ok: #9ece6a;
+  --code-bg: #0b0d12;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+@media (max-width: 1000px) {
+  .layout { grid-template-columns: 1fr; }
+  aside { display: none; }
+}
+aside {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 24px 18px;
+}
+aside h1 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin: 0 0 16px 0;
+  font-weight: 600;
+}
+aside ul { list-style: none; padding-left: 0; margin: 0; }
+aside li { margin: 4px 0; }
+aside a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 13px;
+  display: block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border-left: 2px solid transparent;
+}
+aside a:hover { color: var(--text); background: var(--surface-2); }
+aside ul ul { padding-left: 14px; margin-top: 2px; }
+main {
+  padding: 48px 56px 80px 56px;
+  max-width: 920px;
+}
+h1, h2, h3, h4 { color: var(--text); line-height: 1.3; }
+h1 { font-size: 30px; margin-top: 0; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+h2 { font-size: 22px; margin-top: 48px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 18px; margin-top: 32px; color: var(--accent); }
+h4 { font-size: 15px; margin-top: 22px; color: var(--text); text-transform: uppercase; letter-spacing: 0.05em; }
+p { margin: 12px 0; }
+ul, ol { padding-left: 26px; }
+li { margin: 4px 0; }
+strong { color: var(--text); font-weight: 600; }
+em { color: var(--text-dim); }
+code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 14px 0;
+}
+pre code { background: none; border: none; padding: 0; color: var(--text); font-size: 13px; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 18px 0;
+  font-size: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--surface-2); color: var(--text-dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+tr:last-child td { border-bottom: none; }
+blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 18px 0;
+  padding: 4px 16px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border-radius: 0 4px 4px 0;
+}
+hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.meta { color: var(--text-mute); font-size: 13px; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--accent); border: 1px solid var(--border); }
+.task-id { color: var(--accent); font-weight: 600; }
+.audit-id { color: var(--text-mute); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <h1>Contents</h1>
+    <ul>
+<div class="toc">
+<ul>
+<li><a href="#hookrelay-hardening-and-open-source-readiness-plan">HookRelay Hardening And Open-Source Readiness Plan</a><ul>
+<li><a href="#0-context-how-this-plan-fits-the-existing-plans">0. Context: How This Plan Fits The Existing Plans</a><ul>
+<li><a href="#01-what-the-plans-say-hookrelay-is">0.1 What the plans say HookRelay is</a></li>
+<li><a href="#02-what-the-staged-plans-already-shipped-verified-by-reading-the-code">0.2 What the staged plans already shipped (verified by reading the code)</a></li>
+<li><a href="#03-what-the-plans-explicitly-do-not-cover-and-where-this-plan-begins">0.3 What the plans explicitly do not cover (and where this plan begins)</a></li>
+<li><a href="#04-out-of-scope-reaffirmed">0.4 Out-of-scope (reaffirmed)</a></li>
+</ul>
+</li>
+<li><a href="#1-the-audit-mapped-to-the-plan">1. The Audit, Mapped To The Plan</a></li>
+<li><a href="#2-sequencing-principles">2. Sequencing Principles</a></li>
+<li><a href="#3-tier-0-one-line-fixes-land-today">3. Tier 0: One-Line Fixes (Land Today)</a><ul>
+<li><a href="#task-01-fix-the-git-conflict-marker-in-license">Task 0.1 — Fix the git conflict marker in LICENSE</a></li>
+<li><a href="#task-02-add-minimal-github-scaffolding">Task 0.2 — Add minimal .github/ scaffolding</a></li>
+<li><a href="#task-03-add-ci-workflow">Task 0.3 — Add CI workflow</a></li>
+<li><a href="#task-04-add-a-top-level-makefile">Task 0.4 — Add a top-level Makefile</a></li>
+<li><a href="#task-05-remove-the-duplicate-tunnel_urltxt-gitignore-entry">Task 0.5 — Remove the duplicate tunnel_url.txt gitignore entry</a></li>
+</ul>
+</li>
+<li><a href="#4-tier-1-security-stop-the-worst-holes-first">4. Tier 1: Security — Stop The Worst Holes First</a><ul>
+<li><a href="#task-11-reject-ingest-when-signature-is-missing-or-invalid-razorpay-mode">Task 1.1 — Reject ingest when signature is missing or invalid (Razorpay mode)</a></li>
+<li><a href="#task-12-add-per-session-ingest-token-surface-on-create-require-on-local-control-plane">Task 1.2 — Add per-session ingest token, surface on create, require on local control plane</a></li>
+<li><a href="#task-13-ssrf-guard-on-forward_url">Task 1.3 — SSRF guard on forward_url</a></li>
+<li><a href="#task-14-fix-cors">Task 1.4 — Fix CORS</a></li>
+<li><a href="#task-15-fail-fast-on-default-db-password">Task 1.5 — Fail-fast on default DB password</a></li>
+</ul>
+</li>
+<li><a href="#5-tier-15-stop-the-tool-from-lying">5. Tier 1.5: Stop The Tool From Lying</a><ul>
+<li><a href="#task-21-replay-returns-502-on-forward-failure-client-surfaces-it">Task 2.1 — Replay returns 502 on forward failure, client surfaces it</a></li>
+<li><a href="#task-22-websocket-reconnects-with-exponential-backoff-and-loadhistory-reconciliation">Task 2.2 — WebSocket reconnects with exponential backoff and loadHistory reconciliation</a></li>
+<li><a href="#task-23-loadhistory-websocket-race-one-composite-effect-abortcontroller-gated-ws-open">Task 2.3 — loadHistory × WebSocket race: one composite effect, AbortController, gated WS open</a></li>
+<li><a href="#task-24-bound-redis-pubsub-and-aclose-in-websocket-handler">Task 2.4 — Bound Redis pubsub and aclose() in WebSocket handler</a></li>
+<li><a href="#task-25-persist-a-forward_delivery_status-enum-on-the-row-drop-the-always-show-green-on-200-lie">Task 2.5 — Persist a forward_delivery_status enum on the row, drop the "always show green on 200" lie</a></li>
+<li><a href="#task-26-reject-bodies-above-a-configurable-size-limit">Task 2.6 — Reject bodies above a configurable size limit</a></li>
+<li><a href="#task-27-localstorage-quota-exceeded-surfaces-to-the-user">Task 2.7 — localStorage quota exceeded surfaces to the user</a></li>
+<li><a href="#task-28-getforwardbadge-uses-the-new-forward_delivery_status-consistently">Task 2.8 — getForwardBadge uses the new forward_delivery_status consistently</a></li>
+</ul>
+</li>
+<li><a href="#6-tier-2-make-the-developer-machine-work">6. Tier 2: Make The Developer Machine Work</a><ul>
+<li><a href="#task-31-default-port-80-8080-in-docker-composeyml-document-the-override">Task 3.1 — Default port 80 → 8080 in docker-compose.yml, document the override</a></li>
+<li><a href="#task-32-document-and-warn-on-hostdockerinternal">Task 3.2 — Document and warn on host.docker.internal</a></li>
+<li><a href="#task-33-frontenddockerfile-uses-lockfile-and-npm-ci">Task 3.3 — frontend/Dockerfile uses lockfile and npm ci</a></li>
+<li><a href="#task-34-pin-latest-tags">Task 3.4 — Pin :latest tags</a></li>
+<li><a href="#task-35-vite-dev-server-binds-to-127001-not-0000">Task 3.5 — Vite dev server binds to 127.0.0.1, not 0.0.0.0</a></li>
+<li><a href="#task-36-add-a-top-level-vite_api_base-env-hook">Task 3.6 — Add a top-level VITE_API_BASE env hook</a></li>
+<li><a href="#task-37-tunnel-script-fails-fast-on-misconfigured-env">Task 3.7 — Tunnel script fails fast on misconfigured env</a></li>
+<li><a href="#task-38-name-the-docker-volumes-explicitly">Task 3.8 — Name the docker volumes explicitly</a></li>
+<li><a href="#task-39-add-a-docker-compose-logs-friendly-default-and-a-one-line-healthcheck">Task 3.9 — Add a docker compose logs friendly default and a one-line healthcheck</a></li>
+</ul>
+</li>
+<li><a href="#7-tier-3-oss-contributor-story">7. Tier 3: OSS Contributor Story</a><ul>
+<li><a href="#task-41-frontend-build-and-lint-scripts">Task 4.1 — Frontend build and lint scripts</a></li>
+<li><a href="#task-42-add-eslint-and-prettier">Task 4.2 — Add ESLint and Prettier</a></li>
+<li><a href="#task-43-add-frontend-tests-with-vitest">Task 4.3 — Add frontend tests with vitest</a></li>
+<li><a href="#task-44-confirmdialog-accessibility-and-type-to-confirm-for-destructive-ops">Task 4.4 — ConfirmDialog accessibility and "type to confirm" for destructive ops</a></li>
+<li><a href="#task-45-license-attribution-readme-license-badge-accuracy-changelogmd">Task 4.5 — LICENSE attribution, README license badge accuracy, CHANGELOG.md</a></li>
+</ul>
+</li>
+<li><a href="#8-tier-4-scale-and-operate">8. Tier 4: Scale And Operate</a><ul>
+<li><a href="#task-51-cap-get_webhooks-with-pagination">Task 5.1 — Cap get_webhooks with pagination</a></li>
+<li><a href="#task-52-dedupe-duplicate-detection-in-sql">Task 5.2 — Dedupe duplicate detection in SQL</a></li>
+<li><a href="#task-53-switch-to-async-sqlalchemy">Task 5.3 — Switch to async SQLAlchemy</a></li>
+<li><a href="#task-54-adopt-alembic">Task 5.4 — Adopt Alembic</a></li>
+<li><a href="#task-55-add-structured-logging">Task 5.5 — Add structured logging</a></li>
+<li><a href="#task-56-forward_webhook-with-split-timeouts-optional-fire-and-forget">Task 5.6 — forward_webhook with split timeouts, optional fire-and-forget</a></li>
+<li><a href="#task-57-replay-audit-visibility-mark-replay-rows-as-replay-and-show-in-the-timeline">Task 5.7 — Replay audit visibility — mark replay rows as REPLAY and show in the timeline</a></li>
+<li><a href="#task-58-retention-delete-admincleanupolder_than7d">Task 5.8 — Retention: DELETE /admin/cleanup?older_than=7d</a></li>
+<li><a href="#task-59-move-uvicorn-reload-to-a-dev-override">Task 5.9 — Move uvicorn --reload to a dev override</a></li>
+<li><a href="#task-510-formatrelative-nan-guard-no-static-time-rendering">Task 5.10 — formatRelative "NaN" guard, no-static-time rendering</a></li>
+</ul>
+</li>
+<li><a href="#9-verification-in-order">9. Verification, In Order</a><ul>
+<li><a href="#after-tier-0">After Tier 0</a></li>
+<li><a href="#after-tier-1-security">After Tier 1 (Security)</a></li>
+<li><a href="#after-tier-15-stop-lying">After Tier 1.5 (Stop Lying)</a></li>
+<li><a href="#after-tier-2-dev-machine">After Tier 2 (Dev Machine)</a></li>
+<li><a href="#after-tier-3-oss">After Tier 3 (OSS)</a></li>
+<li><a href="#after-tier-4-scale">After Tier 4 (Scale)</a></li>
+</ul>
+</li>
+<li><a href="#10-what-this-plan-does-not-cover-explicitly">10. What This Plan Does Not Cover (Explicitly)</a></li>
+<li><a href="#11-risk-register">11. Risk Register</a></li>
+<li><a href="#12-file-map-summary">12. File Map Summary</a></li>
+<li><a href="#13-done-when">13. Done When</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+    </ul>
+  </aside>
+  <main>
+<h1 id="hookrelay-hardening-and-open-source-readiness-plan">HookRelay Hardening And Open-Source Readiness Plan</h1>
+<p><strong>Date:</strong> 2026-06-04<br />
+<strong>Branch context:</strong> <code>codex/split-public-ingest-local-control</code><br />
+<strong>Purpose:</strong> Convert the consolidated issue list (security, silent-failure, dev-machine, open-source onboarding) into a sequenced, testable plan that an executing agent can follow task-by-task. This plan does <strong>not</strong> redo work the staged plans already shipped (public ingress fix, API smoke tests, event serialization extraction). It is the next layer.</p>
+<hr />
+<h2 id="0-context-how-this-plan-fits-the-existing-plans">0. Context: How This Plan Fits The Existing Plans</h2>
+<p>The <code>docs/superpowers/plans/</code> directory tells a clear story about where HookRelay has been and where it is going. I read every file there to ground this plan in the project's own direction rather than starting from scratch.</p>
+<h3 id="01-what-the-plans-say-hookrelay-is">0.1 What the plans say HookRelay is</h3>
+<p>From <code>2026-05-26-hookrelay-architecture.md</code>, <code>2026-05-25-hookrelay-razorpay-feature-roadmap.md</code>, and <code>2026-05-25-hookrelay-razorpay-codebase-change-map.md</code>:</p>
+<ul>
+<li><strong>Product goal:</strong> "I am integrating Razorpay locally. My webhook is failing. What exactly is wrong?"</li>
+<li><strong>Target user:</strong> a developer running HookRelay on their own machine, with a public Cloudflare tunnel URL wired into Razorpay's dashboard.</li>
+<li><strong>Scope boundaries (explicit):</strong></li>
+<li>Open source, local developer machine only. <strong>No hosted SaaS.</strong></li>
+<li><strong>Razorpay-first, not multi-provider.</strong> "Avoid abstractions until a second payment provider is actually planned."</li>
+<li>Generic webhook capture is kept for now but is not the product pitch.</li>
+<li>No GitHub automation (already removed in the roadmap Phase 1).</li>
+<li>No enterprise queue or retry engine.</li>
+<li>No production deployment hardening until "local OSS value is proven."</li>
+</ul>
+<h3 id="02-what-the-staged-plans-already-shipped-verified-by-reading-the-code">0.2 What the staged plans already shipped (verified by reading the code)</h3>
+<table>
+<thead>
+<tr>
+<th>Plan</th>
+<th>Files actually changed in code</th>
+<th>Verified status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>2026-06-03-stage-01-public-ingress-502</code></td>
+<td><code>nginx/public.conf</code> adds <code>resolver 127.0.0.11 valid=30s ipv6=off;</code></td>
+<td>✅ Shipped, <code>ed419e1 fix: resolve public ingress Docker DNS lookup</code></td>
+</tr>
+<tr>
+<td><code>2026-06-03-stage-02-backend-api-smoke-tests</code></td>
+<td><code>backend/tests/test_api_smoke.py</code> (6 tests)</td>
+<td>✅ Shipped, <code>a5f2bbb test: add backend API smoke coverage</code></td>
+</tr>
+<tr>
+<td><code>2026-06-03-stage-03-event-serialization-extraction</code></td>
+<td>New <code>backend/app/event_serialization.py</code>, helper modules</td>
+<td>✅ Shipped, <code>986d5ca refactor: extract event serialization</code></td>
+</tr>
+</tbody>
+</table>
+<p>The three helper modules (<code>razorpay_metadata.py</code>, <code>razorpay_duplicates.py</code>, <code>razorpay_fixtures.py</code>, <code>forwarding_diagnostics.py</code>) and their unit tests exist exactly as the Phase 4-7 plans specified. The fixture diagnostics, duplicate-of pill, forward delivery status, and replay payload helper are all wired in and the test count is <code>Ran 31 tests in 0.537s</code> (Stage 03 report). The GitHub webhook code is fully gone from the backend and compose file.</p>
+<p><strong>The codebase is well-updated relative to the staged plans.</strong> No plan-vs-code drift in the Razorpay workstream.</p>
+<h3 id="03-what-the-plans-explicitly-do-not-cover-and-where-this-plan-begins">0.3 What the plans explicitly do not cover (and where this plan begins)</h3>
+<p><code>2026-05-26-hookrelay-codebase-cleanup-audit-plan.md</code> is the most relevant prior plan. It is the parent of the three stage plans that have already shipped. Its <code>## Recommended Implementation Order</code> listed:</p>
+<ol>
+<li>Public ingress fix. <em>(shipped: stage 01)</em></li>
+<li>Public webhook E2E retest. <em>(shipped: stage 01 verification)</em></li>
+<li>Backend API smoke tests. <em>(shipped: stage 02)</em></li>
+<li>Backend low-risk extraction (serialization, Razorpay signature diagnostics). <em>(shipped: stage 03)</em></li>
+<li>Frontend CSS extraction. <em>(not shipped)</em></li>
+<li>Frontend event-first redesign. <em>(not shipped)</em></li>
+<li>Session/endpoint simplification. <em>(not shipped)</em></li>
+<li>Tunnel freshness indicator. <em>(not shipped)</em></li>
+</ol>
+<p>The cleanup audit also explicitly said: <em>"Do not start with a large refactor."</em> — and that the product still needed the public URL path to work first. With the public path now fixed, the cleanup audit's items 5-8 and the <strong>out-of-scope-but-now-real problems surfaced by my code audit</strong> are the work this plan addresses.</p>
+<p>This plan does not invalidate the staged plans. It continues from the same point: serialization is extracted, route behavior is locked by 31 passing tests, and the project is a Razorpay-first local OSS workbench with a public-URL promise that now actually works.</p>
+<h3 id="04-out-of-scope-reaffirmed">0.4 Out-of-scope (reaffirmed)</h3>
+<p>Following the project's own constraints, this plan does <strong>not</strong>:</p>
+<ul>
+<li>Add a hosted SaaS mode.</li>
+<li>Build a multi-provider framework.</li>
+<li>Add a retry/queue engine.</li>
+<li>Auto-update Razorpay's dashboard.</li>
+<li>Re-architect <code>main.py</code> into a deep layered design.</li>
+<li>Add a new migration framework beyond what is already there.</li>
+<li>Rewrite the frontend to a new design system.</li>
+</ul>
+<p>It does, however, fix the things the staged plans deliberately left for later (security, dev-machine ergonomics, open-source onboarding), and it does so in a way that respects the "build one phase at a time, verify, then move on" rhythm the staged plans established.</p>
+<hr />
+<h2 id="1-the-audit-mapped-to-the-plan">1. The Audit, Mapped To The Plan</h2>
+<p>Each issue below is one of the findings from my code audit. I have:</p>
+<ul>
+<li>Tagged whether it is in or out of any existing plan.</li>
+<li>Mapped it to one of the project's explicit product boundaries.</li>
+<li>Sequenced it behind prerequisites that already shipped.</li>
+</ul>
+<p>For each tier I list:<br />
+- The finding (short)<br />
+- The source (file:line)<br />
+- A user-visible impact ("why a developer cares")<br />
+- A proposed fix and the verification command<br />
+- A status field for tracking</p>
+<p>The "Source audit ID" column refers to the numbering in the consolidated issues list delivered earlier in this conversation. The "Tier" column follows the same Tier 0-4 convention.</p>
+<hr />
+<h2 id="2-sequencing-principles">2. Sequencing Principles</h2>
+<p>The plan is ordered by:</p>
+<ol>
+<li><strong>Stop-the-bleeding first</strong> (security + silent failures that lie).</li>
+<li><strong>Then make the dev machine work</strong> (port 80, host.docker.internal, default creds, frontend Dockerfile, lockfile, env completeness).</li>
+<li><strong>Then make the OSS contribution story work</strong> (LICENSE conflict marker, <code>.github/</code>, CI, Makefile, ESLint, frontend tests).</li>
+<li><strong>Then scale and operate</strong> (Alembic, structured logging, async DB, body size, retention, async forwarder, replay audit, WebSocket hardening).</li>
+<li><strong>Then the cleanup audit's deferred UI work</strong> (CSS extraction, event-first layout) — kept as a follow-up, not in this plan's body.</li>
+</ol>
+<p>Each task below is sized for one focused PR. Each task has an explicit verification step. Tasks that change behavior include test cases. Tasks that are pure infra (CI, config) do not.</p>
+<hr />
+<h2 id="3-tier-0-one-line-fixes-land-today">3. Tier 0: One-Line Fixes (Land Today)</h2>
+<p>These are tiny, do not change behavior, and unblock everything else. Ship as a single PR if possible.</p>
+<h3 id="task-01-fix-the-git-conflict-marker-in-license">Task 0.1 — Fix the git conflict marker in <code>LICENSE</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.1</li>
+<li><strong>File:</strong> <code>LICENSE:1</code></li>
+<li><strong>Current:</strong><br />
+<code>text
+  &lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD
+  MIT License
+  Copyright (c) 2026 HookRelay Contributors</code></li>
+<li><strong>Why a developer cares:</strong> GitHub's license detector will refuse to label the repo. PyPI / npm license checks will fail. New visitors see a broken file.</li>
+<li><strong>Fix:</strong> Resolve the conflict. The intended body is the standard MIT text for 2026 HookRelay Contributors. Confirm with <code>git log -- LICENSE</code> that there is no other branch that contributed alternative text.</li>
+<li><strong>Verification:</strong> <code>head -1 LICENSE</code> returns <code>MIT License</code>. <code>git diff</code> shows a clean removal of the marker. CI license-checker (added in Tier 0.2) passes.</li>
+</ul>
+<h3 id="task-02-add-minimal-github-scaffolding">Task 0.2 — Add minimal <code>.github/</code> scaffolding</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.2</li>
+<li><strong>New files:</strong></li>
+<li><code>.github/CODE_OF_CONDUCT.md</code> — Contributor Covenant v2.1 (verbatim, with maintainer email placeholder).</li>
+<li><code>.github/SECURITY.md</code> — "Report vulnerabilities to <security email or GitHub Security Advisories>. We aim to acknowledge within 5 business days."</li>
+<li><code>.github/CONTRIBUTING.md</code> — "Run <code>python -m unittest discover -s backend\tests -p test_*.py</code>. Run <code>npm run build</code> from <code>frontend/</code>. Open a PR."</li>
+<li><code>.github/PULL_REQUEST_TEMPLATE.md</code> — 4-bullet template (what / how / screenshots / risk).</li>
+<li><code>.github/ISSUE_TEMPLATE/bug.yml</code> — minimal: repro, expected, actual, env.</li>
+<li><code>.github/ISSUE_TEMPLATE/feature_request.yml</code> — minimal: problem, proposed solution, alternatives.</li>
+<li><code>.github/dependabot.yml</code> — <code>npm</code> and <code>pip</code> ecosystems, weekly schedule, grouped minor/patch, <code>open-pull-requests-limit: 5</code>.</li>
+<li><code>.github/workflows/ci.yml</code> — see Task 0.3.</li>
+<li><strong>Why a developer cares:</strong> A new contributor lands on the repo and finds nothing — no <code>CONTRIBUTING.md</code>, no templates, no security disclosure path. The project reads as "one-person side project" even when the code is structured for handoff.</li>
+<li><strong>Fix:</strong> Add the files above verbatim. No code changes.</li>
+<li><strong>Verification:</strong> GitHub renders all seven files. <code>dependabot.yml</code> validates (GitHub will show a red banner on a bad file). CI workflow runs on push.</li>
+</ul>
+<h3 id="task-03-add-ci-workflow">Task 0.3 — Add CI workflow</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.4 (test absence) + Tier 0.2 (no CI)</li>
+<li><strong>New file:</strong> <code>.github/workflows/ci.yml</code></li>
+<li><strong>Jobs:</strong><br />
+  1. <code>backend-tests</code> — <code>actions/checkout@v4</code>, <code>actions/setup-python@v5</code> with <code>python-version: "3.11"</code>, <code>pip install -r backend/requirements.txt</code>, <code>python -m unittest discover -s backend/tests -p test_*.py</code>.<br />
+  2. <code>frontend-build</code> — <code>actions/checkout@v4</code>, <code>actions/setup-node@v4</code> with <code>node-version: "20"</code>, <code>cd frontend</code>, <code>npm ci</code>, <code>npm run build</code> (also requires adding the <code>build</code> script — see Tier 3 task).<br />
+  3. <code>lint-frontend</code> — same checkout + node, <code>cd frontend</code>, <code>npm run lint</code> (also requires adding ESLint config — see Tier 3 task).<br />
+  4. <code>license-check</code> — verifies <code>LICENSE</code> exists, starts with <code>MIT License</code>, does not contain <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code>. Cheap shell command.</li>
+<li><strong>Why a developer cares:</strong> PRs without CI are PRs without a contract. Today, nothing tells a contributor whether their change broke the suite.</li>
+<li><strong>Fix:</strong> Add the workflow. No application code change.</li>
+<li><strong>Verification:</strong> Push a branch; CI runs the three jobs green. (Triggers only on PR open; no need to wait for first scheduled run.)</li>
+</ul>
+<h3 id="task-04-add-a-top-level-makefile">Task 0.4 — Add a top-level <code>Makefile</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.4</li>
+<li><strong>New file:</strong> <code>Makefile</code></li>
+<li><strong>Targets:</strong><br />
+  ```makefile<br />
+  .PHONY: test test-one lint build dev up down logs clean</li>
+</ul>
+<p>test:<br />
+      python -m unittest discover -s backend/tests -p "test_*.py"</p>
+<p>test-one:<br />
+      python -m unittest $(FILE)</p>
+<p>lint:<br />
+      cd frontend &amp;&amp; npm run lint</p>
+<p>build:<br />
+      cd frontend &amp;&amp; npm run build</p>
+<p>dev:<br />
+      docker compose up --build</p>
+<p>up:<br />
+      docker compose up -d</p>
+<p>down:<br />
+      docker compose down</p>
+<p>logs:<br />
+      docker compose logs -f</p>
+<p>clean:<br />
+      rm -rf frontend/.vite-build-tmp frontend/dist<br />
+<code>``
+- **Why a developer cares:** Running a single test today is</code>python -m unittest backend.tests.test_razorpay_metadata<code>from the repo root, with a non-obvious</code>sys.path<code>quirk. A Makefile removes the friction.
+- **Fix:** Add the file. Document in</code>CONTRIBUTING.md<code>.
+- **Verification:**</code>make test<code>runs the suite from the repo root.</code>make test-one FILE=backend.tests.test_razorpay_metadata` runs one file.</p>
+<h3 id="task-05-remove-the-duplicate-tunnel_urltxt-gitignore-entry">Task 0.5 — Remove the duplicate <code>tunnel_url.txt</code> gitignore entry</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 2.6</li>
+<li><strong>File:</strong> <code>.gitignore:43, 71</code></li>
+<li><strong>Current:</strong> both <code>tunnel/tunnel_url.txt</code> and <code>tunnel_url.txt</code> patterns.</li>
+<li><strong>Fix:</strong> Remove <code>tunnel/tunnel_url.txt</code> (the actual file is in the <code>tunnel_data</code> volume, not the source tree).</li>
+<li><strong>Verification:</strong> <code>git status</code> is clean for <code>.gitignore</code> after the edit; <code>git check-ignore tunnel/tunnel_url.txt</code> returns non-zero.</li>
+</ul>
+<hr />
+<h2 id="4-tier-1-security-stop-the-worst-holes-first">4. Tier 1: Security — Stop The Worst Holes First</h2>
+<p>These five items, in this order, are the difference between "open-source toy" and "open-source tool you can publish." They are all in the project's scope (the staged plans explicitly say security on the public-facing path matters; see cleanup audit P0 about public ingress — Tier 1 is the next layer of that thinking).</p>
+<h3 id="task-11-reject-ingest-when-signature-is-missing-or-invalid-razorpay-mode">Task 1.1 — Reject ingest when signature is missing or invalid (Razorpay mode)</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.1</li>
+<li><strong>File:</strong> <code>backend/app/main.py:141-194</code> (<code>receive_webhook</code>); <code>backend/app/event_serialization.py:87-121</code> (<code>build_razorpay_diagnostics</code>)</li>
+<li><strong>Current behavior:</strong> Signature verification runs but the result is purely informational. Any POST to <code>/api/hooks/{session_id}</code> is stored, forwarded, and shown in the dashboard.</li>
+<li><strong>Why a developer cares:</strong> The whole Razorpay-first promise is "securely receive Razorpay webhooks locally." Right now an attacker who learns a session ID can plant arbitrary events. The dashboard lies about what Razorpay sent.</li>
+<li><strong>Fix:</strong><br />
+  1. In <code>event_serialization.py</code>, change <code>build_razorpay_diagnostics</code> to return both the diagnostics dict <strong>and</strong> the boolean <code>is_signature_acceptable</code> (true when <code>signature_status == "valid"</code>, or when status is <code>not_applicable</code> for non-Razorpay mode, or <code>missing_secret</code> if the developer intentionally accepted unverified mode).<br />
+  2. In <code>main.py:receive_webhook</code>, after computing the diagnostics, if <code>config.provider == "razorpay"</code> and not <code>is_signature_acceptable</code> and <code>signature_status in ("invalid", "missing_signature")</code>, return <code>401 {"detail": "Razorpay signature verification failed"}</code> without persisting the event. (The developer can opt out by leaving the secret blank — that stays <code>not_applicable</code> and is accepted.)<br />
+  3. Add a new test <code>test_receive_webhook_rejects_invalid_razorpay_signature</code> to <code>backend/tests/test_api_smoke.py</code>.<br />
+  4. Add <code>test_receive_webhook_accepts_missing_secret_in_razorpay_mode</code> to assert the opt-out path works (developer chose to run Razorpay mode without a secret for local-only debugging).</li>
+<li><strong>Why preserve the opt-out:</strong> the project's roadmap Phase 3 says "Captures invalid events instead of dropping them" as a success criterion. We honor that for <code>missing_secret</code> but enforce integrity for <code>invalid</code> and <code>missing_signature</code> (the sender <em>did</em> sign, just wrong or absent).</li>
+<li><strong>Verification:</strong> <code>python -m unittest discover -s backend\tests -p test_*.py</code> passes 33 tests (was 31). Manual: `curl -H "X-Razorpay-Event-Id: x" -d '{"event":"payment.captured"}' http://localhost/api/hooks/test returns 401 when a secret is configured; returns 200 when no secret is configured.</li>
+</ul>
+<h3 id="task-12-add-per-session-ingest-token-surface-on-create-require-on-local-control-plane">Task 1.2 — Add per-session ingest token, surface on create, require on local control plane</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.1, Tier 1.2, H1</li>
+<li><strong>Files:</strong> <code>backend/app/models.py</code>, <code>backend/app/main.py</code>, <code>frontend/src/hooks/useEndpointState.jsx</code>, <code>frontend/src/App.jsx</code></li>
+<li><strong>Current:</strong> <code>local_control_router</code> has zero auth. Anyone on loopback (a sibling container, a port-forwarded attacker, a malicious browser extension) can read all events, plant <code>forward_url</code>s, and replay. The WebSocket <code>/ws/{session_id}</code> is open to any client that can guess the 8-char ID.</li>
+<li><strong>Fix:</strong><br />
+  1. Add a column <code>ingest_token TEXT NOT NULL</code> to <code>session_configs</code> (extend <code>ensure_session_config_columns</code> with <code>ADD COLUMN IF NOT EXISTS ingest_token TEXT</code>; no Alembic needed; same idempotency pattern the staged plans established).<br />
+  2. On <code>POST /sessions/{session_id}/init</code> (a new route — see below) generate <code>secrets.token_urlsafe(24)</code>, store hash (e.g. <code>hashlib.sha256(token).hexdigest()</code>) in the column, return the raw token <strong>once</strong> in the response. If the row already exists, rotate: require the existing token in the <code>Authorization: Bearer &lt;token&gt;</code> header, return a new token.<br />
+  3. Add <code>Authorization: Bearer &lt;token&gt;</code> dependency on every <code>local_control_router</code> route except <code>GET /health</code> and the existing public <code>POST /hooks/{session_id}</code>.<br />
+  4. On <code>GET /ws/{session_id}</code> WebSocket, check <code>websocket.headers.get("authorization") == "Bearer " + token</code> before <code>accept()</code>. Reject close code <code>1008</code> (policy violation) on mismatch.<br />
+  5. The frontend stores the token in <code>localStorage</code> keyed by session id (encrypted at rest in a future PR; for now, plain text in the developer's own browser is acceptable for a local OSS tool — document the trade-off in a code comment).</li>
+<li><strong>Why a developer cares:</strong> This is the difference between "the dashboard is on a port only I can hit" and "the dashboard is on a port anyone on the loopback can hit." Combined with Task 1.1 it removes the two worst attack surfaces.</li>
+<li><strong>Verification:</strong> New tests:</li>
+<li><code>test_local_control_requires_token</code> — without <code>Authorization</code>, all <code>local_control_router</code> routes return 401.</li>
+<li><code>test_websocket_rejects_wrong_token</code> — WS handshake without a valid token closes with 1008.</li>
+<li><code>test_session_init_creates_and_returns_token</code> — the init route generates a token, the token verifies against the stored hash on subsequent calls.</li>
+<li><strong>Out of scope (deferred):</strong> rotating tokens, expiring tokens, rate limiting. The current local OSS tool does not need them yet.</li>
+</ul>
+<h3 id="task-13-ssrf-guard-on-forward_url">Task 1.3 — SSRF guard on <code>forward_url</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.3</li>
+<li><strong>Files:</strong> <code>backend/app/schemas.py:40-43</code> (<code>SessionConfigIn</code>), <code>backend/app/main.py:107-134</code> (<code>forward_webhook</code>)</li>
+<li><strong>Current:</strong> <code>forward_url</code> is <code>Optional[str]</code>. Any string is accepted. <code>httpx</code> follows redirects by default.</li>
+<li><strong>Why a developer cares:</strong> A typo or a maliciously planted URL can probe <code>127.0.0.1:6379</code>, <code>169.254.169.254</code>, internal services on <code>host.docker.internal</code>. The <code>api</code> container has <code>extra_hosts: host-gateway</code>, so the host's loopback is reachable.</li>
+<li><strong>Fix:</strong><br />
+  1. Replace <code>Optional[str]</code> with <code>Optional[HttpUrl]</code> in <code>SessionConfigIn</code> (Pydantic v2). Reject anything not <code>http://</code> or <code>https://</code>.<br />
+  2. Add a <code>field_validator</code> that resolves the URL with <code>socket.getaddrinfo(host, port)</code> and rejects if any returned IP is in:<ul>
+<li><code>127.0.0.0/8</code>, <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>, <code>169.254.0.0/16</code>, <code>::1/128</code>, <code>fc00::/7</code>, <code>fe80::/10</code></li>
+<li>or matches <code>0.0.0.0</code>, <code>localhost</code>, <code>host.docker.internal</code>, or the docker service name <code>postgres</code>/<code>redis</code>.<br />
+  3. Add an env override <code>ALLOW_LOOPBACK_FORWARD=1</code> that disables the IP check (for self-hosters who intentionally forward to internal services). Log a loud warning when set.<br />
+  4. In <code>forward_webhook</code>, construct <code>httpx.AsyncClient(..., follow_redirects=False)</code>. If a redirect is needed in the future, the helper should re-validate the new URL against the same allowlist.</li>
+</ul>
+</li>
+<li><strong>Verification:</strong> New tests:</li>
+<li><code>test_forward_url_validator_rejects_loopback_ip</code> — <code>http://127.0.0.1:3000</code> rejected.</li>
+<li><code>test_forward_url_validator_rejects_metadata_ip</code> — <code>http://169.254.169.254/</code> rejected.</li>
+<li><code>test_forward_url_validator_rejects_https_routable_ip</code> — <code>http://8.8.8.8/</code> accepted (with a log warning that the egress is leaving the host).</li>
+<li><code>test_forward_url_allow_loopback_override</code> — when <code>ALLOW_LOOPBACK_FORWARD=1</code>, loopback is accepted and a warning is logged.</li>
+<li><code>test_forward_webhook_does_not_follow_redirects</code> — mock a <code>httpx</code> transport that returns 302 to <code>127.0.0.1</code>; assert the client does not chase it.</li>
+</ul>
+<h3 id="task-14-fix-cors">Task 1.4 — Fix CORS</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.2</li>
+<li><strong>File:</strong> <code>backend/app/main.py:93-99</code></li>
+<li><strong>Current:</strong> <code>allow_origins=["*"]</code> + <code>allow_credentials=True</code>. Browsers reject credentialed responses for <code>*</code>, but the configuration advertises the wrong intent.</li>
+<li><strong>Fix:</strong> Drop <code>allow_credentials=True</code> (the API has no cookies; the new bearer token lives in <code>Authorization</code> headers, which are not subject to CORS credentials semantics). Restrict <code>allow_origins</code> to the configured frontend origin — read from env, default <code>http://localhost:5173</code> and <code>http://127.0.0.1</code>.</li>
+<li><strong>Why a developer cares:</strong> This is the only "this project doesn't understand its security model" smell. It's a 5-line change.</li>
+<li><strong>Verification:</strong> Manual: open <code>http://localhost/</code> in a browser, inspect response headers, confirm <code>Access-Control-Allow-Origin</code> matches the request origin (not <code>*</code>). Curl the API with <code>Origin: http://evil.example</code>; confirm the response lacks <code>Access-Control-Allow-Origin</code>.</li>
+</ul>
+<h3 id="task-15-fail-fast-on-default-db-password">Task 1.5 — Fail-fast on default DB password</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.6</li>
+<li><strong>File:</strong> <code>docker-compose.yml:6, 43-48</code>; <code>backend/app/database.py:6-8</code></li>
+<li><strong>Current:</strong> <code>POSTGRES_USER=webhookuser</code>, <code>POSTGRES_PASSWORD=webhookpass</code> defaults. <code>.env.example</code> does not list them.</li>
+<li>
+<p><strong>Fix:</strong><br />
+  1. Remove the defaults from <code>docker-compose.yml</code> and require explicit env values:</p>
+<p><code>yaml
+ POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+ POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+ POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}</code><br />
+  2. Update <code>.env.example</code> to include the three with <code># REQUIRED</code> markers and a 1-line note ("generate with <code>openssl rand -hex 32</code>").<br />
+  3. Update <code>database.py</code> to read <code>DATABASE_URL</code> (already does), but if <code>DATABASE_URL</code> is the default literal <code>postgresql://webhookuser:webhookpass@postgres:5432/webhookdb</code>, log a warning at startup.<br />
+  4. Add a one-line <code>Makefile</code> target <code>make init-env</code> that copies <code>.env.example</code> to <code>.env</code> and prompts to set the password.<br />
+- <strong>Why a developer cares:</strong> The defaults "work" out of the box, so a developer never copies <code>.env.example</code> to <code>.env</code> and silently lands on <code>webhookuser:webhookpass</code>. Anything else on <code>local_net</code> can connect.<br />
+- <strong>Verification:</strong> <code>docker compose up</code> without <code>.env</code> fails immediately with the <code>?:</code> error message. With a populated <code>.env</code>, the stack starts.</p>
+</li>
+</ul>
+<hr />
+<h2 id="5-tier-15-stop-the-tool-from-lying">5. Tier 1.5: Stop The Tool From Lying</h2>
+<p>These are the silent-failure findings. They are not security holes but they make the tool actively misleading, which for a developer-machine workbench is the worst category of bug. Ship after Tier 1.</p>
+<h3 id="task-21-replay-returns-502-on-forward-failure-client-surfaces-it">Task 2.1 — Replay returns 502 on forward failure, client surfaces it</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.13, Tier 4.14</li>
+<li><strong>Files:</strong> <code>backend/app/main.py:241-294</code> (<code>replay_event</code>), <code>frontend/src/hooks/useEventStream.jsx:200-201</code> (<code>replayEvent</code>)</li>
+<li><strong>Current:</strong> <code>replay_event</code> returns <code>200 {"status": "replayed", "id": ..., "forward_status": status}</code> even when <code>status is None</code> (forward threw). Frontend treats any 2xx as success and shows a green "Replayed" pill.</li>
+<li><strong>Fix:</strong><br />
+  1. In <code>replay_event</code>: if <code>error</code> is set (forward threw), return <code>502 {"status": "replay_delivery_failure", "id": event_id, "forward_error": error[:500]}</code>. Persist the <code>replay_event</code> row in either case (audit trail preserved). Status 502 only when forward was attempted and failed.<br />
+  2. In <code>useEventStream.jsx:replayEvent</code>, branch on <code>response.status</code>:<ul>
+<li>200 → green pill, "Replayed."</li>
+<li>502 → red pill, "Replay sent but local handler was unreachable. See event row for details."</li>
+<li>other → red pill, the existing error path.<br />
+  3. Add a new event row column <code>replay_delivery_status</code> derived from the same <code>forward_delivery_status</code> (replay events should show the same diagnostics).</li>
+</ul>
+</li>
+<li><strong>Why a developer cares:</strong> Clicking "Replay" and seeing green is the worst lie in the tool. The local handler never got the payload; the dev moves on, doesn't notice, gets bitten later.</li>
+<li><strong>Verification:</strong> New tests:</li>
+<li><code>test_replay_returns_502_when_forward_throws</code> — patch <code>forward_webhook</code> to raise, assert 502.</li>
+<li><code>test_replay_returns_200_when_forward_succeeds</code> — existing test, still passes.</li>
+</ul>
+<h3 id="task-22-websocket-reconnects-with-exponential-backoff-and-loadhistory-reconciliation">Task 2.2 — WebSocket reconnects with exponential backoff and <code>loadHistory</code> reconciliation</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.14, Tier 3.30</li>
+<li><strong>File:</strong> <code>frontend/src/hooks/useEventStream.jsx:75-137</code></li>
+<li><strong>Current:</strong> Reconnect timer is <code>setTimeout(connect, 2000)</code> unconditionally, forever. No backoff, no jitter, no cap. Reconnect does not call <code>loadHistory()</code> so events published during the gap are lost from the dashboard.</li>
+<li><strong>Why a developer cares:</strong> The "Stream live" chip turns green after a 2-second outage and the user assumes continuity. Events that arrived during the gap are in the database but never shown.</li>
+<li><strong>Fix:</strong><br />
+  1. Add a <code>reconnectAttempt</code> ref, start at 0, reset on <code>onopen</code>.<br />
+  2. Compute <code>delay = min(2000 * 2 ** reconnectAttempt, 30000) + random(0, 1000)</code> (1s jitter).<br />
+  3. On <code>socket.onopen</code>, call <code>loadHistory()</code> (already exists) <em>after</em> the socket opens, so any messages that the server replayed into the open socket are merged with the REST snapshot by id.<br />
+  4. After 10 consecutive failures, surface a non-retrying "Stream offline — click to reconnect" UI state.</li>
+<li><strong>Why a developer cares:</strong> Bug directly produces "I sent a webhook and it's not showing up." Cures the perception that the dashboard is frozen.</li>
+<li><strong>Verification:</strong> Manual: <code>docker compose stop api</code>; dashboard shows "Reconnecting…" with a slow pulse. After ~30s, show "Stream offline." <code>docker compose start api</code>; click reconnect, history rehydrates, new event arrives.</li>
+</ul>
+<h3 id="task-23-loadhistory-websocket-race-one-composite-effect-abortcontroller-gated-ws-open">Task 2.3 — <code>loadHistory</code> × WebSocket race: one composite effect, <code>AbortController</code>, gated WS open</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.15</li>
+<li><strong>File:</strong> <code>frontend/src/hooks/useEventStream.jsx:42-73, 96-108</code></li>
+<li><strong>Current:</strong> <code>loadHistory</code> is in flight while the WebSocket is opening. Live events arriving first can be overwritten by the historical snapshot, and vice versa.</li>
+<li><strong>Fix:</strong> Refactor the effect into a single async setup that:<br />
+  1. Calls <code>loadHistory(signal)</code> and <code>await</code>s it (with <code>AbortController.signal</code>).<br />
+  2. Only then opens the WebSocket.<br />
+  3. WS <code>onmessage</code> only appends events whose <code>id</code> is not in the current <code>events</code> array.<br />
+  4. Switching <code>sessionId</code> aborts the in-flight history load and the open WebSocket.</li>
+<li><strong>Verification:</strong> Manual: send a webhook while the page is loading. Event appears once, no duplicate, no skip.</li>
+</ul>
+<h3 id="task-24-bound-redis-pubsub-and-aclose-in-websocket-handler">Task 2.4 — Bound Redis pubsub and <code>aclose()</code> in WebSocket handler</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 4.3, Tier 4.15, Tier 4.16</li>
+<li><strong>File:</strong> <code>backend/app/main.py:309-344</code></li>
+<li><strong>Fix:</strong><br />
+  1. Wrap <code>forward_to_browser</code> body in <code>try/except (redis.exceptions.RedisError, RuntimeError)</code> and on exception: <code>logger.warning(...)</code>, then break the loop. The <code>wait_for_disconnect</code> task will end cleanly when the client closes.<br />
+  2. Wrap <code>pubsub.aclose()</code> in <code>asyncio.wait_for(..., timeout=2.0)</code>; log on timeout.<br />
+  3. Add a server-side heartbeat: every 25s, send <code>{"type": "ping"}</code> over the WebSocket. Client <code>onmessage</code> no-ops on <code>{type: 'ping'}</code>.<br />
+  4. Bound the queue implicitly: switch from <code>pubsub.listen()</code> to <code>pubsub.get_message(timeout=0.05)</code> in a <code>while True</code> loop with <code>await asyncio.sleep(0)</code>. Document the change.</li>
+<li><strong>Verification:</strong> Manual: kill the Redis container, observe WebSocket closes cleanly with a <code>RedisError</code> log line, client reconnects. Run for an hour with heartbeat on — connection survives NAT timeouts.</li>
+</ul>
+<h3 id="task-25-persist-a-forward_delivery_status-enum-on-the-row-drop-the-always-show-green-on-200-lie">Task 2.5 — Persist a <code>forward_delivery_status</code> enum on the row, drop the "always show green on 200" lie</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.18, Tier 4.12</li>
+<li><strong>Files:</strong> <code>backend/app/main.py:107-134</code>, <code>forwarding_diagnostics.py</code>, <code>event_serialization.py</code></li>
+<li><strong>Current:</strong> <code>forward_error</code> is a string column. <code>forwarding_diagnostics.py</code> collapses any non-empty <code>forward_error</code> into <code>delivery_failure</code> and never distinguishes timeout from connection-refused.</li>
+<li><strong>Fix:</strong><br />
+  1. Change <code>forward_webhook</code> to return a fourth tuple element: <code>forward_failure_kind: Optional[str]</code> where the value is one of <code>timeout</code>, <code>connection</code>, <code>tls</code>, <code>dns</code>, <code>invalid_url</code>, <code>other</code>. Set it explicitly per exception class (<code>httpx.ConnectError → "connection"</code>, <code>httpx.ReadTimeout → "timeout"</code>, <code>ssl.SSLError → "tls"</code>, <code>socket.gaierror → "dns"</code>).<br />
+  2. Persist <code>forward_failure_kind</code> as a new column (extend <code>ensure_session_config_columns</code> to also <code>ADD COLUMN IF NOT EXISTS forward_failure_kind VARCHAR(32)</code> on <code>webhook_events</code>). Idempotent, same pattern.<br />
+  3. In <code>build_forward_diagnostics</code>, return the kind in the message: e.g. <code>"Local handler timed out after 10s. Check the local process."</code>.<br />
+  4. Frontend inspector shows the kind in a new pill.</li>
+<li><strong>Why a developer cares:</strong> Today a connect-refused, a TLS handshake failure, a 10s timeout, and a misconfigured <code>InvalidURL</code> all produce the same dashboard pill. The developer cannot tell which.</li>
+<li><strong>Verification:</strong> New unit tests in <code>test_forwarding_diagnostics.py</code> for each exception class. <code>python -m unittest discover -s backend\tests -p test_*.py</code> passes 35+ tests.</li>
+</ul>
+<h3 id="task-26-reject-bodies-above-a-configurable-size-limit">Task 2.6 — Reject bodies above a configurable size limit</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.8</li>
+<li><strong>File:</strong> <code>backend/app/main.py:141-194</code></li>
+<li><strong>Fix:</strong> Read <code>MAX_INGEST_BODY_BYTES</code> from env (default <code>5_242_880</code> = 5 MB). If <code>int(request.headers.get("content-length", 0)) &gt; MAX_INGEST_BODY_BYTES</code>, return <code>413 {"detail": "Body too large"}</code>. Also cap the streaming read by replacing <code>await request.body()</code> with a manual loop that raises on overflow. Document the limit in the env example.</li>
+<li><strong>Why a developer cares:</strong> A malicious or chatty sender (or a misconfigured one) can fill the developer's disk silently. No log line, no metric, no admin endpoint.</li>
+<li><strong>Verification:</strong> New test <code>test_receive_webhook_rejects_oversized_body</code>. Manual: <code>curl --data-binary "@/tmp/100MB" http://localhost/api/hooks/test</code> returns 413.</li>
+</ul>
+<h3 id="task-27-localstorage-quota-exceeded-surfaces-to-the-user">Task 2.7 — <code>localStorage</code> quota exceeded surfaces to the user</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.16</li>
+<li><strong>File:</strong> <code>frontend/src/hooks/useEndpointState.jsx:21-23, 56-77, 96-114</code></li>
+<li><strong>Fix:</strong><br />
+  1. Wrap <code>localStorage.setItem</code> in <code>try/catch</code>. On <code>QuotaExceededError</code>, set a <code>storageError</code> state.<br />
+  2. Move the persistence side effect out of the state updater and into a <code>useEffect([history])</code> and <code>useEffect([labels])</code> so it is render-phase-safe.<br />
+  3. Render a <code>StatusBanner</code> warning: "Local browser storage is full. Endpoint labels and history are not being saved."</li>
+<li><strong>Verification:</strong> Manual: fill <code>localStorage</code> to the cap; create a new endpoint; observe the banner.</li>
+</ul>
+<h3 id="task-28-getforwardbadge-uses-the-new-forward_delivery_status-consistently">Task 2.8 — <code>getForwardBadge</code> uses the new <code>forward_delivery_status</code> consistently</h3>
+<ul>
+<li><strong>Audit ID:</strong> already partially addressed by Phase 6 plan; my audit noted that the frontend had <code>forward_delivery_status</code> but did not always thread the message through. The Phase 6 plan's Task 3 is the right fix; re-verify.</li>
+<li><strong>Action:</strong> No new code. Re-run Phase 6 test plan; confirm <code>forward_delivery_message</code> appears in the inspector.</li>
+</ul>
+<hr />
+<h2 id="6-tier-2-make-the-developer-machine-work">6. Tier 2: Make The Developer Machine Work</h2>
+<p>These are the dev-machine ergonomics. The cleanup audit explicitly listed the host/Docker gap and the placeholder as items. Most of these are quick.</p>
+<h3 id="task-31-default-port-80-8080-in-docker-composeyml-document-the-override">Task 3.1 — Default port 80 → 8080 in <code>docker-compose.yml</code>, document the override</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.4</li>
+<li><strong>File:</strong> <code>docker-compose.yml:25</code></li>
+<li><strong>Fix:</strong> Change to <code>127.0.0.1:8080:80</code>. Update <code>.env.example</code> to mention the <code>LOCAL_INGRESS_PORT</code> env override. Update <code>frontend/src/components/SetupRail.jsx:117</code> placeholder to use 8080. (The 127.0.0.1 vs 0.0.0.0 question is orthogonal; see Task 3.5.)</li>
+<li><strong>Why a developer cares:</strong> Port 80 is taken on most dev machines (IIS, Apache, Skype legacy, dozens of dev tools). A cryptic nginx error is the developer's first impression.</li>
+<li><strong>Verification:</strong> <code>docker compose up</code>, then <code>curl http://localhost:8080/</code> returns 200.</li>
+</ul>
+<h3 id="task-32-document-and-warn-on-hostdockerinternal">Task 3.2 — Document and warn on <code>host.docker.internal</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.5</li>
+<li><strong>File:</strong> <code>frontend/src/components/SetupRail.jsx:117</code>; <code>backend/app/main.py</code> (config save route)</li>
+<li><strong>Fix:</strong><br />
+  1. Replace the placeholder with explicit copy: "If your local app runs outside Docker, use the host's LAN IP (e.g. <code>http://192.168.1.42:3000/webhooks/razorpay</code>). <code>host.docker.internal</code> only resolves on Docker Desktop or Docker Engine 20.10+."<br />
+  2. On <code>PUT /sessions/{id}/config</code> in the backend, if the URL host is <code>host.docker.internal</code>, add a <code>forward_url_warnings: ["..."]</code> field to the response. (The new SSRF validator from Task 1.3 already allows it; this just adds a heads-up.)<br />
+  3. Frontend renders the warning under the forward URL input.</li>
+<li><strong>Why a developer cares:</strong> On plain Linux, the developer follows the placeholder, sets it, and gets "Delivery failure" with no hint.</li>
+<li><strong>Verification:</strong> Manual: set <code>forward_url=http://host.docker.internal:3000/...</code>, observe the inline warning.</li>
+</ul>
+<h3 id="task-33-frontenddockerfile-uses-lockfile-and-npm-ci">Task 3.3 — <code>frontend/Dockerfile</code> uses lockfile and <code>npm ci</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.5</li>
+<li><strong>File:</strong> <code>frontend/Dockerfile:1-6</code></li>
+<li><strong>Fix:</strong><br />
+<code>dockerfile
+  FROM node:20-alpine
+  WORKDIR /app
+  COPY package.json package-lock.json ./
+  RUN npm ci
+  COPY . .
+  CMD ["npm", "run", "dev"]</code><br />
+  Note: <code>package-lock.json</code> already exists and is tracked (44 KB), per the audit's verification.</li>
+<li><strong>Why a developer cares:</strong> Every container restart re-resolves the <code>^</code> ranges and pulls a fresh <code>vite</code>/<code>react</code>. Supply-chain and reproducibility hazard.</li>
+<li><strong>Verification:</strong> <code>docker compose build frontend</code> succeeds. The first <code>RUN npm ci</code> line in the build log shows a clean lockfile install.</li>
+</ul>
+<h3 id="task-34-pin-latest-tags">Task 3.4 — Pin <code>:latest</code> tags</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.6</li>
+<li><strong>Files:</strong> <code>tunnel/Dockerfile:1</code>, <code>docker-compose.yml:23, 35</code></li>
+<li><strong>Fix:</strong></li>
+<li><code>tunnel/Dockerfile</code>: <code>FROM cloudflare/cloudflared:2024.12.2 AS cloudflared</code> (or the latest verified version; pin in <code>.env.example</code> with a comment that it's reviewed quarterly by Dependabot).</li>
+<li><code>docker-compose.yml</code>: <code>image: nginx:1.27-alpine</code> for both <code>local_ingress</code> and <code>public_ingress</code>.</li>
+<li>Postgres and Redis are already major-pinned (<code>postgres:15-alpine</code>, <code>redis:7-alpine</code>); leave them.</li>
+<li><strong>Why a developer cares:</strong> A yanked <code>cloudflared:latest</code> or <code>nginx:alpine</code> quietly breaks a long-running install.</li>
+<li><strong>Verification:</strong> <code>docker compose config</code> shows the pinned versions. <code>docker compose pull</code> does not change the pinned tags.</li>
+</ul>
+<h3 id="task-35-vite-dev-server-binds-to-127001-not-0000">Task 3.5 — Vite dev server binds to 127.0.0.1, not 0.0.0.0</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.7</li>
+<li><strong>File:</strong> <code>frontend/package.json:5</code></li>
+<li><strong>Fix:</strong> Change <code>"dev": "vite --host 127.0.0.1 --port 5173"</code>. Document the override (e.g. <code>--host 0.0.0.0</code> for LAN testing) in the comment.</li>
+<li><strong>Why a developer cares:</strong> Coffee-shop Wi-Fi, public networks, and dev containers on shared hosts all see the dev server on <code>0.0.0.0:5173</code>, including source maps and the unauthenticated dev API proxy.</li>
+<li><strong>Verification:</strong> <code>lsof -i :5173</code> shows 127.0.0.1 only.</li>
+</ul>
+<h3 id="task-36-add-a-top-level-vite_api_base-env-hook">Task 3.6 — Add a top-level <code>VITE_API_BASE</code> env hook</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 3.11</li>
+<li><strong>File:</strong> <code>frontend/src/App.jsx:20-26</code>; new file <code>frontend/.env.example</code></li>
+<li><strong>Fix:</strong> Read <code>import.meta.env.VITE_API_BASE</code> first; fall back to the existing <code>window.location</code> heuristic. Add <code>frontend/.env.example</code> with <code>VITE_API_BASE=</code> (commented) so the variable is discoverable.</li>
+<li><strong>Why a developer cares:</strong> Dev server on a different port or a multi-origin deploy breaks the magic-number heuristic silently.</li>
+<li><strong>Verification:</strong> Set <code>VITE_API_BASE=http://localhost:8000</code>; <code>npm run dev</code>; <code>fetch('/api/sessions')</code> hits <code>http://localhost:8000/api/sessions</code>.</li>
+</ul>
+<h3 id="task-37-tunnel-script-fails-fast-on-misconfigured-env">Task 3.7 — Tunnel script fails fast on misconfigured env</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.10, Tier 2.3</li>
+<li><strong>File:</strong> <code>tunnel/start.sh:3-13</code></li>
+<li><strong>Fix:</strong><br />
+  1. If <code>CLOUDFLARE_TUNNEL_TOKEN</code> is non-empty <strong>and</strong> <code>TUNNEL_HOSTNAME</code> is empty, fail with <code>echo "ERROR: CLOUDFLARE_TUNNEL_TOKEN is set but TUNNEL_HOSTNAME is empty. Set both or neither." &gt;&amp;2; exit 1</code>.<br />
+  2. If <code>CLOUDFLARE_TUNNEL_TOKEN</code> is empty <strong>and</strong> <code>TUNNEL_HOSTNAME</code> is non-empty, warn (quick-tunnel mode will generate a different URL) and continue.<br />
+  3. Bump the URL-discovery loop from 30s to 120s.<br />
+  4. On timeout, write <code>/shared/tunnel_status.txt</code> with <code>{"status": "starting", "message": "..."}</code> so the backend can return a structured response instead of <code>null</code>.</li>
+<li><strong>Why a developer cares:</strong> The 30s timeout on slow networks silently fails. The hostname/token mismatch silently overrides the developer's intent.</li>
+<li><strong>Verification:</strong> Manual: set <code>CLOUDFLARE_TUNNEL_TOKEN=fake</code> and <code>TUNNEL_HOSTNAME=</code>, start stack, see error and exit 1. Set <code>TUNNEL_HOSTNAME=foo.example.com</code> only, start stack, see warning, quick-tunnel URL appears.</li>
+</ul>
+<h3 id="task-38-name-the-docker-volumes-explicitly">Task 3.8 — Name the <code>docker volume</code>s explicitly</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 2.4</li>
+<li><strong>File:</strong> <code>docker-compose.yml:92-94</code></li>
+<li><strong>Fix:</strong><br />
+<code>yaml
+  volumes:
+    postgres_data:
+      name: hookrelay_postgres_data
+    tunnel_data:
+      name: hookrelay_tunnel_data</code></li>
+<li><strong>Why a developer cares:</strong> <code>docker volume prune</code> and <code>docker compose down -v</code> are different beasts. Named volumes survive <code>prune</code> (which the dev probably wants for "clean up orphans") but <code>down -v</code> still wipes them (which they should know about).</li>
+<li><strong>Verification:</strong> <code>docker volume ls</code> shows <code>hookrelay_postgres_data</code>. <code>docker compose down</code> does not remove it. <code>docker compose down -v</code> does.</li>
+</ul>
+<h3 id="task-39-add-a-docker-compose-logs-friendly-default-and-a-one-line-healthcheck">Task 3.9 — Add a <code>docker compose logs</code> friendly default and a one-line healthcheck</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 4.8</li>
+<li><strong>File:</strong> <code>backend/app/main.py:445-454</code> (<code>health</code> endpoint)</li>
+<li><strong>Fix:</strong> Expand <code>health</code> to actually check the things:<br />
+<code>python
+  @local_control_router.get("/health")
+  def health(db: Session = Depends(get_db)):
+      db_ok = redis_ok = tunnel_ok = False
+      try:
+          db.execute(text("SELECT 1"))
+          db_ok = True
+      except Exception:
+          pass
+      try:
+          # Use a sync wrapper around the existing redis client for ping.
+          ...
+      except Exception:
+          pass
+      tunnel_url = read_tunnel_url_file()
+      tunnel_ok = tunnel_url is not None
+      return {
+          "status": "ok" if (db_ok and redis_ok) else "degraded",
+          "postgres": db_ok,
+          "redis": redis_ok,
+          "tunnel_url_present": tunnel_ok,
+      }</code><br />
+  Add a <code>Makefile</code> target <code>make health</code> that curls <code>http://localhost:8080/api/health</code>.</li>
+<li><strong>Why a developer cares:</strong> When something is wrong, the developer's first question is "what's broken?" A flat <code>{"status": "ok"}</code> answers nothing.</li>
+<li><strong>Verification:</strong> <code>make health</code> returns the full breakdown. Stop Redis, <code>make health</code> shows <code>redis: false, status: degraded</code>.</li>
+</ul>
+<hr />
+<h2 id="7-tier-3-oss-contributor-story">7. Tier 3: OSS Contributor Story</h2>
+<p>These are the items the new contributor hits on day 1 of a PR.</p>
+<h3 id="task-41-frontend-build-and-lint-scripts">Task 4.1 — Frontend <code>build</code> and <code>lint</code> scripts</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.4, Tier 0.5, Tier 3.13</li>
+<li><strong>File:</strong> <code>frontend/package.json</code></li>
+<li><strong>Fix:</strong> Add:<br />
+<code>json
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .js,.jsx --max-warnings 0",
+    "test": "vitest run"
+  }</code></li>
+<li><strong>Verification:</strong> <code>cd frontend &amp;&amp; npm run build</code> produces a production bundle. <code>npm run lint</code> runs ESLint (after Task 4.2 adds config).</li>
+</ul>
+<h3 id="task-42-add-eslint-and-prettier">Task 4.2 — Add ESLint and Prettier</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.4</li>
+<li><strong>New files:</strong> <code>frontend/.eslintrc.cjs</code>, <code>frontend/.prettierrc.json</code>, <code>frontend/.eslintignore</code></li>
+<li><strong>Deps:</strong> <code>eslint</code>, <code>eslint-plugin-react</code>, <code>eslint-plugin-react-hooks</code>, <code>eslint-plugin-react-refresh</code>, <code>prettier</code> as devDependencies.</li>
+<li><strong>Rules:</strong> Default React + hooks rules. No <code>console.log</code> allowed (matches the project rule). <code>react-hooks/exhaustive-deps: error</code>. Allow <code>console.error</code> and <code>console.warn</code>.</li>
+<li><strong>Why a developer cares:</strong> Without a linter, every PR is a style negotiation.</li>
+<li><strong>Verification:</strong> <code>npm run lint</code> is clean on the current code. CI runs <code>lint</code>.</li>
+</ul>
+<h3 id="task-43-add-frontend-tests-with-vitest">Task 4.3 — Add frontend tests with <code>vitest</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 3.13</li>
+<li><strong>New files:</strong> <code>frontend/vitest.config.js</code>, <code>frontend/src/hooks/__tests__/useEventStream.test.jsx</code>, <code>frontend/src/hooks/__tests__/useEndpointState.test.jsx</code>, <code>frontend/src/__tests__/ui.test.js</code>, <code>frontend/src/components/__tests__/ConfirmDialog.test.jsx</code></li>
+<li><strong>Deps:</strong> <code>vitest</code>, <code>@testing-library/react</code>, <code>@testing-library/jest-dom</code>, <code>happy-dom</code> (or <code>jsdom</code>).</li>
+<li><strong>Tests to write (at minimum):</strong></li>
+<li><code>useEventStream</code> — loadHistory + WS race (Task 2.3), reconnect backoff, session switch cancellation.</li>
+<li><code>useEndpointState</code> — <code>readStorage</code>/<code>writeStorage</code> quota exceeded, label save, summary poll failure.</li>
+<li><code>prettyPrintBody</code> — XSS-safe rendering of <code>&lt;script&gt;</code> and <code>&amp;</code>.</li>
+<li><code>formatRelative</code> — <code>NaN</code> → "Unknown", valid timestamps render.</li>
+<li><code>ConfirmDialog</code> — Escape closes, focus trap, type-to-confirm (after Task 4.4).</li>
+<li><code>getForwardBadge</code> — exhaustive table of status → label.</li>
+<li><strong>Why a developer cares:</strong> The two riskiest files in the app have zero tests today. Once the race conditions are fixed (Task 2.3, Task 2.2), tests lock them in.</li>
+<li><strong>Verification:</strong> <code>npm test</code> runs all suites green. CI runs <code>test</code> and <code>lint</code>.</li>
+</ul>
+<h3 id="task-44-confirmdialog-accessibility-and-type-to-confirm-for-destructive-ops">Task 4.4 — <code>ConfirmDialog</code> accessibility and "type to confirm" for destructive ops</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 3.5, Tier 3.6</li>
+<li><strong>File:</strong> <code>frontend/src/components/ConfirmDialog.jsx</code></li>
+<li><strong>Fix:</strong><br />
+  1. Add <code>role="dialog"</code>, <code>aria-modal="true"</code>, <code>aria-labelledby</code> pointing at the title h2.<br />
+  2. Add <code>onKeyDown</code> for <code>Escape</code> → <code>onClose()</code>.<br />
+  3. Initial focus moves to the <strong>safe</strong> (Cancel) button on open.<br />
+  4. Trap focus inside the dialog with a small custom trap (or use the native <code>&lt;dialog&gt;</code> element with <code>showModal()</code>).<br />
+  5. When <code>kind === 'delete-endpoint'</code>, render a text input that requires the endpoint id to be typed before the confirm button enables.<br />
+  6. When <code>disabled</code> is true (delete in flight), make the backdrop click a no-op.</li>
+<li><strong>Why a developer cares:</strong> A single click on "Delete endpoint" wipes the session and every captured event. The current dialog says "this cannot be undone" but doesn't enforce it. A11y is a 30-line change.</li>
+<li><strong>Verification:</strong> New tests in <code>ConfirmDialog.test.jsx</code>. Manual with keyboard-only navigation.</li>
+</ul>
+<h3 id="task-45-license-attribution-readme-license-badge-accuracy-changelogmd">Task 4.5 — <code>LICENSE</code> attribution, <code>README</code> license badge accuracy, <code>CHANGELOG.md</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.1, Tier 0.2</li>
+<li><strong>Fix:</strong> After Task 0.1 lands, add <code>CHANGELOG.md</code> with a "1.0.0 — 2026-06-XX" entry listing the shipped features (Razorpay mode, public tunnel ingest, local forwarding, replay, fixtures, multi-stage) and the new hardening items. Document the change in <code>CHANGELOG.md</code> so the next maintainer has a one-page history.</li>
+<li><strong>Verification:</strong> <code>CHANGELOG.md</code> exists, links to the staged plans.</li>
+</ul>
+<hr />
+<h2 id="8-tier-4-scale-and-operate">8. Tier 4: Scale And Operate</h2>
+<p>These are the items that don't bite day 1 but bite at month 6.</p>
+<h3 id="task-51-cap-get_webhooks-with-pagination">Task 5.1 — Cap <code>get_webhooks</code> with pagination</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.12, Tier 4.4</li>
+<li><strong>File:</strong> <code>backend/app/main.py:200-209</code></li>
+<li><strong>Fix:</strong> Add <code>?limit=100&amp;before_id=...</code> to <code>GET /hooks/{session_id}</code>. Default 100, max 500. Sort by <code>received_at DESC, id DESC</code>. The frontend's <code>loadHistory</code> uses the same query.</li>
+<li><strong>Why a developer cares:</strong> A long-running tunnel install can produce thousands of events. The dashboard's initial load serializes them all into JSON.</li>
+<li><strong>Verification:</strong> New test: capture 200 events, GET with <code>?limit=50&amp;before_id=...</code> returns 50.</li>
+</ul>
+<h3 id="task-52-dedupe-duplicate-detection-in-sql">Task 5.2 — Dedupe duplicate detection in SQL</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.11</li>
+<li><strong>File:</strong> <code>backend/app/event_serialization.py:63-84</code> (<code>find_duplicate_razorpay_event_id</code>); called from <code>main.py:166</code> and again at <code>main.py:188</code></li>
+<li><strong>Fix:</strong> Replace the in-Python loop with a single SQL query:<br />
+<code>python
+  duplicate_id = (
+      db.query(models.WebhookEvent.id)
+      .filter(
+          models.WebhookEvent.session_id == event.session_id,
+          models.WebhookEvent.id &lt; event.id,
+          models.WebhookEvent.headers[RAZORPAY_EVENT_ID_HEADER].astext == provider_event_id,
+      )
+      .order_by(models.WebhookEvent.id.asc())
+      .limit(1)
+      .scalar()
+  )</code><br />
+  Add a btree functional index migration (extend <code>ensure_session_config_columns</code> with <code>CREATE INDEX IF NOT EXISTS idx_webhook_events_razorpay_event_id ON webhook_events ((headers -&gt;&gt; 'x-razorpay-event-id')) WHERE headers ? 'x-razorpay-event-id'</code>). Also stop calling the helper twice in <code>receive_webhook</code> — compute once after the first commit, stash on the in-memory event, reuse on the second publish.</li>
+<li><strong>Why a developer cares:</strong> O(N) full scan per webhook turns the live workbench into a slideshow at 1000+ events. Doubled on every request.</li>
+<li><strong>Verification:</strong> Existing <code>test_duplicate_detection_across_two_razorpay_captures</code> still passes. New perf test: capture 1000 events, post a duplicate, the duplicate detection query plan is <code>Index Scan</code> (check <code>EXPLAIN</code> in the Postgres-only path).</li>
+</ul>
+<h3 id="task-53-switch-to-async-sqlalchemy">Task 5.3 — Switch to async SQLAlchemy</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.10</li>
+<li><strong>File:</strong> <code>backend/app/database.py</code>; <code>backend/app/main.py</code></li>
+<li><strong>Fix:</strong> Switch engine to <code>create_async_engine(DATABASE_URL)</code> with <code>postgresql+asyncpg://...</code> driver. Replace <code>Session</code> with <code>AsyncSession</code> everywhere. Wrap <code>db.commit()</code>/<code>db.refresh()</code> in <code>await</code>. Update <code>get_db</code> to yield an <code>AsyncSession</code> and <code>await session.close()</code> on cleanup. Update the test fixture in <code>test_api_smoke.py</code> to use <code>httpx.AsyncClient(transport=ASGITransport(app=app))</code> and <code>pytest-asyncio</code>.</li>
+<li><strong>Why a developer cares:</strong> Under any non-trivial webhook rate (Razorpay burst, GitHub CI push, a chatty Stripe test account), the sync session blocks the event loop. Throughput collapses.</li>
+<li><strong>Verification:</strong> New <code>pytest-asyncio</code> test that fires 50 concurrent webhooks and asserts the median latency does not exceed the per-request baseline by more than 2x.</li>
+</ul>
+<h3 id="task-54-adopt-alembic">Task 5.4 — Adopt Alembic</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.10, Tier 4.1</li>
+<li><strong>Files:</strong> New <code>backend/alembic/</code> directory, <code>alembic.ini</code>, <code>env.py</code></li>
+<li><strong>Fix:</strong><br />
+  1. <code>pip install alembic</code> (add to <code>backend/requirements.txt</code>).<br />
+  2. <code>alembic init backend/alembic</code>.<br />
+  3. Generate an initial migration that captures the current schema (<code>alembic revision --autogenerate -m "initial"</code>).<br />
+  4. Replace <code>Base.metadata.create_all(bind=engine)</code> in <code>main.py:22</code> with an <code>alembic upgrade head</code> step in the compose file (or a small entrypoint script).<br />
+  5. Keep <code>ensure_session_config_columns</code> for backward compat with existing dev installs (it is idempotent and a no-op on Alembic-managed DBs), or document a one-time migration from the legacy DB to Alembic.</li>
+<li><strong>Why a developer cares:</strong> <code>ADD COLUMN IF NOT EXISTS</code> does not handle renames, type changes, or index changes. The moment a third column is needed, this is a maintenance liability.</li>
+<li><strong>Verification:</strong> A fresh <code>docker compose up</code> on a clean volume runs <code>alembic upgrade head</code> and ends in a working state. Existing volume is migrated by <code>alembic upgrade head</code> (idempotent because the column already exists).</li>
+</ul>
+<h3 id="task-55-add-structured-logging">Task 5.5 — Add structured logging</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.17</li>
+<li><strong>File:</strong> <code>backend/app/main.py</code> (and helpers)</li>
+<li><strong>Fix:</strong><br />
+  1. Add <code>import logging</code> and <code>logger = logging.getLogger("hookrelay")</code> at module top.<br />
+  2. Configure root logging in the <code>lifespan</code> startup: <code>logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')</code>.<br />
+  3. Add <code>logger.info("webhook received", extra={"session_id": sid, "event_id": event.id})</code> in <code>receive_webhook</code>.<br />
+  4. Add <code>logger.exception("forward_webhook failed", extra={"session_id": sid, "url": forward_url})</code> in the exception branch.<br />
+  5. Add <code>logger.warning("redis publish failed", extra={"session_id": sid})</code> in the WebSocket pubsub error branch.<br />
+  6. Add <code>logger.warning("ensure_session_config_columns failed", extra={"statement": sql})</code> per-statement.</li>
+<li><strong>Why a developer cares:</strong> Zero <code>logger.*</code> calls means every silent failure is a developer's hour of debugging. Logging is the difference between "I cannot tell why this broke" and "I see line 183 raised <code>ConnectError</code> for <code>host.docker.internal:3000</code>."</li>
+<li><strong>Verification:</strong> <code>docker compose logs api</code> shows the new log lines during a webhook capture.</li>
+</ul>
+<h3 id="task-56-forward_webhook-with-split-timeouts-optional-fire-and-forget">Task 5.6 — <code>forward_webhook</code> with split timeouts, optional fire-and-forget</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 4.4</li>
+<li><strong>File:</strong> <code>backend/app/main.py:107-134</code></li>
+<li><strong>Fix:</strong><br />
+  1. Change <code>timeout=10.0</code> to <code>httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=1.0)</code>.<br />
+  2. Add an env flag <code>FORWARD_FIRE_AND_FORGET=1</code> that wraps the forward in <code>asyncio.create_task(...)</code> so <code>receive_webhook</code> returns 200 to the public ingress immediately. Default off (preserve current behavior).<br />
+  3. In fire-and-forget mode, log the result and publish to Redis; do not block the public response.</li>
+<li><strong>Why a developer cares:</strong> A developer's local app is down (TCP RST) and the public request stalls for 10s. Razorpay may interpret that as a failure and retry. 2s connect + 5s read is the right default; fire-and-forget is the right knob.</li>
+<li><strong>Verification:</strong> New test: with <code>FORWARD_FIRE_AND_FORGET=1</code>, <code>receive_webhook</code> returns in &lt; 100ms even with a down local app. The WebSocket still receives the forward result asynchronously.</li>
+</ul>
+<h3 id="task-57-replay-audit-visibility-mark-replay-rows-as-replay-and-show-in-the-timeline">Task 5.7 — Replay audit visibility — mark replay rows as <code>REPLAY</code> and show in the timeline</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 4.14, Tier 1.13</li>
+<li><strong>File:</strong> already partially done — <code>main.py:241-294</code> creates <code>method="REPLAY"</code>. The frontend's <code>EventList</code> already shows a <code>Replay</code> pill. Verify and add: a <code>replay_target_event_id</code> column so a replay event links back to the original. (Alternative: parse from the body or headers. Column is cleaner.)</li>
+<li><strong>Why a developer cares:</strong> A developer who replays an event 5 times during debugging sees 5 rows in the timeline. Today they cannot tell which replay is which without inspecting the body.</li>
+<li><strong>Verification:</strong> Replay an event; the new row has <code>replay_target_event_id = &lt;original&gt;</code>. The inspector shows "Replay of Event #42".</li>
+</ul>
+<h3 id="task-58-retention-delete-admincleanupolder_than7d">Task 5.8 — Retention: <code>DELETE /admin/cleanup?older_than=7d</code></h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 1.9</li>
+<li><strong>File:</strong> new <code>backend/app/cleanup.py</code>, registered on <code>local_control_router</code></li>
+<li><strong>Fix:</strong><br />
+  1. New route <code>POST /admin/cleanup</code> accepting <code>{"older_than": "7d", "session_id": "..."}</code> (optional, default all).<br />
+  2. Parses the duration with <code>re</code> and <code>timedelta</code>. Returns <code>{"deleted_events": N, "deleted_configs": M}</code>.<br />
+  3. Requires the ingest token (Task 1.2).</li>
+<li><strong>Why a developer cares:</strong> Long-running installs store every event forever. Today the developer has no admin path; <code>GET /api/hooks/{id}</code> gets slower as the table grows.</li>
+<li><strong>Verification:</strong> New test: insert 3 events at <code>t-8d</code>, call cleanup with <code>older_than=7d</code>, assert 3 events gone, the rest stay.</li>
+</ul>
+<h3 id="task-59-move-uvicorn-reload-to-a-dev-override">Task 5.9 — Move <code>uvicorn --reload</code> to a dev override</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 0.7</li>
+<li><strong>File:</strong> <code>backend/Dockerfile</code>, new <code>docker-compose.dev.yml</code></li>
+<li><strong>Fix:</strong><br />
+  1. In <code>backend/Dockerfile</code>, change <code>CMD</code> to <code>["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]</code> (no <code>--reload</code>).<br />
+  2. Add <code>docker-compose.dev.yml</code> that overrides the <code>api</code> service command with <code>--reload</code>.<br />
+  3. Document <code>docker compose -f docker-compose.yml -f docker-compose.dev.yml up</code> for dev mode.</li>
+<li><strong>Why a developer cares:</strong> The default Dockerfile runs <code>--reload</code> even in "production" copies. Watchdog process, bind-mounted source, all the surprises.</li>
+<li><strong>Verification:</strong> <code>docker compose up --build</code> runs without <code>--reload</code>. <code>docker compose -f docker-compose.yml -f docker-compose.dev.yml up</code> does.</li>
+</ul>
+<h3 id="task-510-formatrelative-nan-guard-no-static-time-rendering">Task 5.10 — <code>formatRelative</code> "NaN" guard, no-static-time rendering</h3>
+<ul>
+<li><strong>Audit ID:</strong> Tier 3.7, Tier 3.8</li>
+<li><strong>File:</strong> <code>frontend/src/ui.js:41-56</code></li>
+<li><strong>Fix:</strong><br />
+  1. Validate <code>Date.parse(value)</code> returns a number; if not, return "Unknown time."<br />
+  2. Add a <code>useNowTick(intervalMs)</code> hook that returns a state value bumped on an interval. <code>App.jsx</code> uses it with <code>30000</code> to re-render relative-time labels every 30s.</li>
+<li><strong>Why a developer cares:</strong> "5s ago" stays "5s ago" until something triggers a re-render. <code>NaNd ago</code> is a real bug when timestamps are missing or malformed.</li>
+<li><strong>Verification:</strong> New test in <code>ui.test.js</code>.</li>
+</ul>
+<hr />
+<h2 id="9-verification-in-order">9. Verification, In Order</h2>
+<p>Each tier is gated by a command set. The whole plan is verified by the existing E2E test report's "Final Verification Before Redesign" plus the new tests added by each task.</p>
+<h3 id="after-tier-0">After Tier 0</h3>
+<pre><code class="language-powershell">git -C C:\Users\visha\hookrelay diff --check
+head -1 C:\Users\visha\hookrelay\LICENSE
+</code></pre>
+<h3 id="after-tier-1-security">After Tier 1 (Security)</h3>
+<pre><code class="language-powershell">cd C:\Users\visha\hookrelay\backend
+python -m unittest discover -s tests -p test_*.py
+# Expected: 35+ tests pass, including the new signature-rejection and auth tests.
+</code></pre>
+<p>Manual:<br />
+- <code>curl -H "X-Razorpay-Event-Id: x" -d '{"event":"payment.captured"}' http://localhost:8080/api/hooks/test</code> → 401 (with secret configured).<br />
+- <code>curl http://localhost:8080/api/sessions</code> without <code>Authorization</code> → 401.</p>
+<h3 id="after-tier-15-stop-lying">After Tier 1.5 (Stop Lying)</h3>
+<pre><code class="language-powershell">cd C:\Users\visha\hookrelay\backend
+python -m unittest discover -s tests -p test_*.py
+</code></pre>
+<p>Manual: kill Redis, observe WebSocket closes cleanly with a log line, reconnects with backoff.</p>
+<h3 id="after-tier-2-dev-machine">After Tier 2 (Dev Machine)</h3>
+<pre><code class="language-powershell">docker compose config  # verify no defaults
+docker compose up --build
+curl http://localhost:8080/api/health  # full breakdown
+</code></pre>
+<h3 id="after-tier-3-oss">After Tier 3 (OSS)</h3>
+<pre><code class="language-powershell">cd C:\Users\visha\hookrelay\frontend
+npm ci
+npm run lint
+npm run build
+npm test
+</code></pre>
+<h3 id="after-tier-4-scale">After Tier 4 (Scale)</h3>
+<pre><code class="language-powershell">cd C:\Users\visha\hookrelay\backend
+alembic upgrade head
+python -m unittest discover -s tests -p test_*.py
+</code></pre>
+<hr />
+<h2 id="10-what-this-plan-does-not-cover-explicitly">10. What This Plan Does Not Cover (Explicitly)</h2>
+<p>The following are out of scope by design, in line with the project's own constraints:</p>
+<ul>
+<li><strong>Multi-provider framework.</strong> The audit noted that adding a Stripe handler would be straightforward, but the project's roadmap explicitly says "avoid abstractions until a second provider is actually planned." We honor that.</li>
+<li><strong>Hosted SaaS mode.</strong> Explicitly excluded.</li>
+<li><strong>Retry engine / queue.</strong> A forwarded webhook that fails 5 times is out of scope. The developer can replay manually.</li>
+<li><strong>UI redesign.</strong> The cleanup audit's "event-first UI" is its own follow-up plan, not part of this hardening pass.</li>
+<li><strong>Replacing the migration story with a deep one.</strong> Alembic is a 2-hour PR; more elaborate tooling (e.g. <code>dbmate</code>, <code>sqlx</code>) is not warranted at this scale.</li>
+<li><strong>Frontend <code>App.jsx</code> decomposition.</strong> Genuine 1500-line file, but splitting it is its own multi-PR effort. The Tier 3 testing work (Task 4.3) reduces the risk of doing that decomposition later.</li>
+<li><strong>Production deployment story.</strong> The <code>docker-compose.prod.yml</code> and <code>Caddy/Nginx</code> example are deferred. Self-hosters on a VPS will fork and figure it out, same as today.</li>
+</ul>
+<hr />
+<h2 id="11-risk-register">11. Risk Register</h2>
+<p>The biggest risks to executing this plan, and how the plan addresses them:</p>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tier 1 (security) breaks the public webhook path.</td>
+<td>All security changes have explicit tests; the existing 31 tests act as a regression net. The signature-rejection change is opt-out for <code>missing_secret</code>, preserving the existing dev flow.</td>
+</tr>
+<tr>
+<td>Tier 1.2 (auth token) breaks the frontend.</td>
+<td>Frontend already uses <code>Authorization</code>-style semantics for nothing today; adding <code>localStorage</code>-stored token + <code>Authorization: Bearer</code> header is a contained change. The frontend's API call wrappers are two functions.</td>
+</tr>
+<tr>
+<td>Tier 4.3 (async SQLAlchemy) breaks the test suite.</td>
+<td>The audit's task 5.3 includes updating the test fixture in <code>test_api_smoke.py</code> to use <code>httpx.AsyncClient</code>. Run the suite mid-refactor.</td>
+</tr>
+<tr>
+<td>Frontend test introduction (Tier 4.3 in this plan, Task 4.3 above) becomes a 2-day rabbit hole.</td>
+<td>Keep the test surface narrow: race conditions, storage failure paths, XSS safety, formatRelative/forwardBadge tables. Skip the snapshot-test avalanche.</td>
+</tr>
+<tr>
+<td>Dev-machine behavior varies (Windows, Mac, Linux).</td>
+<td>The plan is tested against the project's existing dev workflow (Docker Compose, port 8080). Mac and Windows differences are documented; Linux-on-non-Desktop is documented in the <code>host.docker.internal</code> warning (Task 3.2).</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="12-file-map-summary">12. File Map Summary</h2>
+<p>Files added by this plan (across all tiers):</p>
+<ul>
+<li><code>.github/CODE_OF_CONDUCT.md</code></li>
+<li><code>.github/SECURITY.md</code></li>
+<li><code>.github/CONTRIBUTING.md</code></li>
+<li><code>.github/PULL_REQUEST_TEMPLATE.md</code></li>
+<li><code>.github/ISSUE_TEMPLATE/bug.yml</code></li>
+<li><code>.github/ISSUE_TEMPLATE/feature_request.yml</code></li>
+<li><code>.github/dependabot.yml</code></li>
+<li><code>.github/workflows/ci.yml</code></li>
+<li><code>Makefile</code></li>
+<li><code>frontend/.eslintrc.cjs</code></li>
+<li><code>frontend/.prettierrc.json</code></li>
+<li><code>frontend/.env.example</code></li>
+<li><code>frontend/vitest.config.js</code></li>
+<li><code>frontend/src/hooks/__tests__/useEventStream.test.jsx</code></li>
+<li><code>frontend/src/hooks/__tests__/useEndpointState.test.jsx</code></li>
+<li><code>frontend/src/__tests__/ui.test.js</code></li>
+<li><code>frontend/src/components/__tests__/ConfirmDialog.test.jsx</code></li>
+<li><code>backend/alembic.ini</code></li>
+<li><code>backend/alembic/env.py</code></li>
+<li><code>backend/alembic/versions/&lt;initial&gt;.py</code></li>
+<li><code>backend/app/cleanup.py</code></li>
+<li><code>backend/tests/test_cleanup.py</code></li>
+<li><code>CHANGELOG.md</code></li>
+</ul>
+<p>Files modified by this plan:</p>
+<ul>
+<li><code>LICENSE</code> (conflict resolution)</li>
+<li><code>.gitignore</code> (duplicate <code>tunnel_url.txt</code> removal)</li>
+<li><code>docker-compose.yml</code> (defaults, version pins, named volumes, port 8080, <code>GITHUB_WEBHOOK_*</code> already removed)</li>
+<li><code>docker-compose.dev.yml</code> (new)</li>
+<li><code>nginx/public.conf</code> (already shipped)</li>
+<li><code>tunnel/start.sh</code> (fail-fast, longer timeout, status file)</li>
+<li><code>frontend/Dockerfile</code> (lockfile copy, <code>npm ci</code>)</li>
+<li><code>tunnel/Dockerfile</code> (version pin)</li>
+<li><code>frontend/package.json</code> (scripts, <code>vite</code> host, devDeps)</li>
+<li><code>frontend/src/App.jsx</code> (relative-time tick, <code>VITE_API_BASE</code> env, <code>useCallback</code> for handlers)</li>
+<li><code>frontend/src/hooks/useEventStream.jsx</code> (abort controller, backoff, reconciliation)</li>
+<li><code>frontend/src/hooks/useEndpointState.jsx</code> (quota error handling, effect-based persistence)</li>
+<li><code>frontend/src/components/ConfirmDialog.jsx</code> (a11y, type-to-confirm)</li>
+<li><code>frontend/src/components/SetupRail.jsx</code> (placeholder copy, warning surfacing)</li>
+<li><code>frontend/src/ui.js</code> (NaN guard, copy-failure messaging)</li>
+<li><code>backend/app/main.py</code> (signature enforcement, auth dep, SSRF validation, structured logs, split timeouts, fire-and-forget, body size cap, structured forward failure, replay 502, async DB)</li>
+<li><code>backend/app/database.py</code> (async engine)</li>
+<li><code>backend/app/models.py</code> (new columns)</li>
+<li><code>backend/app/schemas.py</code> (response model updates, <code>HttpUrl</code> constraint)</li>
+<li><code>backend/app/event_serialization.py</code> (SQL dedupe, signature boolean, <code>is_signature_acceptable</code>)</li>
+<li><code>backend/app/forwarding_diagnostics.py</code> (kind field)</li>
+<li><code>backend/tests/test_api_smoke.py</code> (new test cases)</li>
+</ul>
+<p>No file is in more than two tasks. Most are in one.</p>
+<hr />
+<h2 id="13-done-when">13. Done When</h2>
+<p>This plan is complete when, after merging all the above:</p>
+<ul>
+<li><code>make test</code> runs the backend suite from the repo root and passes.</li>
+<li><code>npm test</code> runs the frontend suite and passes.</li>
+<li><code>npm run lint</code> is clean.</li>
+<li><code>npm run build</code> produces a production bundle.</li>
+<li><code>docker compose up</code> (no <code>-v</code>) starts cleanly with <code>.env</code> populated.</li>
+<li><code>make health</code> returns <code>status: ok, postgres: true, redis: true, tunnel_url_present: true</code>.</li>
+<li>A <code>curl</code> to the public tunnel URL with a forged body returns 401 (when a Razorpay secret is configured).</li>
+<li>A <code>curl</code> to <code>/api/sessions</code> without <code>Authorization</code> returns 401.</li>
+<li>A replay that fails forwarding returns 502 and the UI shows a red pill, not green.</li>
+<li>The dashboard reconnects after a backend restart, backfills any missed events, and the user sees a continuous timeline.</li>
+<li>A first-time contributor can clone, <code>cp .env.example .env</code>, <code>make dev</code>, <code>make test</code>, and have a working environment in under 10 minutes.</li>
+<li>A first-time contributor who opens a PR sees CI run three jobs (backend, frontend build, frontend lint) and a Dependabot weekly ping.</li>
+<li><code>LICENSE</code> starts with <code>MIT License</code> and ends with the standard MIT tail.</li>
+<li>No <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</code> markers, no <code>console.log</code> in production code, no <code>:latest</code> tags in production-shaped Dockerfiles.</li>
+</ul>
+<p>The plan that lives in <code>docs/superpowers/plans/</code> is the project's own road. This plan is the next four weeks of work that road implies, expressed as tasks a contributor can pick up one at a time.</p>
+  </main>
+</div>
+</body>
+</html>
