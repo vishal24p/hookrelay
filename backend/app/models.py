@@ -19,7 +19,10 @@ class WebhookEvent(Base):
     forward_status   = Column(Integer, nullable=True)
     forward_response = Column(Text, nullable=True)
     forward_error    = Column(Text, nullable=True)
+    forward_failure_kind = Column(String(32), nullable=True)
+    forward_delivery_status = Column(String(32), nullable=True)
     forwarded_at     = Column(DateTime, nullable=True)
+    replay_target_event_id = Column(Integer, nullable=True)
 
 
 class SessionConfig(Base):
@@ -27,5 +30,8 @@ class SessionConfig(Base):
 
     session_id  = Column(String(100), primary_key=True)
     forward_url = Column(Text, nullable=True)
+    provider    = Column(String(32), default="generic", nullable=False)
+    razorpay_webhook_secret = Column(Text, nullable=True)
+    auth_token_hash = Column(Text, nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
     updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a focused improvement for HookRelay.
+title: "[Feature]: "
+labels: ["feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user workflow first. Implementation ideas are welcome after that.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What local webhook workflow is painful or missing today?
+      placeholder: When testing Razorpay webhooks locally, I need to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should HookRelay do?
+      placeholder: Add a way to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives tried
+      description: What workaround are you using now?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Area
+      options:
+        - Razorpay webhook testing
+        - Local forwarding
+        - Event inspection
+        - Replay and fixtures
+        - Setup or documentation
+        - Other
+    validations:
+      required: true
