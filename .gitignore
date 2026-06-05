@@ -56,4 +56,10 @@ logs/
 .factory/
 .playwright-mcp/
 .codegraph/
+.claude/
+.agents/
+.codex/
+AGENTS.md
+CLAUDE.md
 artifacts/
+.gstack/
